@@ -1,150 +1,102 @@
-import { useState, useEffect } from 'react';
-import { Bell, Flame, TrendingUp, Settings2, Moon, Sun } from 'lucide-react';
-import MobileInbox from './components/MobileInbox';
-import clsx from 'clsx';
-import { motion, useAnimation } from 'framer-motion';
-
-// Mock data
-const mockExpenses = [
-  {
-    id: '1',
-    merchantName: 'AWS Cloud Services',
-    amount: 14500,
-    suggestedCategory: '通信費',
-    date: '2026-03-12',
-  },
-  {
-    id: '2',
-    merchantName: 'Starbucks Roastery',
-    amount: 1200,
-    suggestedCategory: '交際費',
-    date: '2026-03-10',
-  },
-  {
-    id: '3',
-    merchantName: 'WeWork Office',
-    amount: 85000,
-    suggestedCategory: '地代家賃',
-    date: '2026-03-01',
-  },
-];
+import { useState, useEffect, useRef } from 'react';
+import { Bell, Flame, TrendingUp, Settings2, Moon, Sun, Send, User, Bot } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
-  const [taxAmount, setTaxAmount] = useState(482000);
-  const [profit, setProfit] = useState(2450000);
   const [isDark, setIsDark] = useState(false);
-  const controls = useAnimation();
+  const [messages, setMessages] = useState([
+    { role: 'bot', text: '確定申告AIアシスタントです。経費の仕分けや、申請書類の作り方について何でも聞いてください！' }
+  ]);
+  const [input, setInput] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Handle Dark mode toggle
+  // ダークモード制御
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    if (isDark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   }, [isDark]);
 
-  // Simulate counter animation
-  useEffect(() => {
-    controls.start({
-      scale: [1, 1.05, 1],
-      transition: { duration: 0.3 }
-    });
-  }, [taxAmount, profit, controls]);
+  // メッセージ送信
+  const handleSend = async () => {
+    if (!input.trim()) return;
+    
+    const userMsg = { role: 'user', text: input };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
 
-  const handleExpenseProcessed = (expenseId: string, action: 'approve' | 'reject') => {
-    const expense = mockExpenses.find(e => e.id === expenseId);
-    if (expense && action === 'approve') {
-      const savings = Math.floor(expense.amount * 0.2);
-      setTaxAmount(prev => prev - savings);
-      setProfit(prev => prev - expense.amount);
-    }
+    // AIの返信待ち（シミュレーション）
+    // 本来はここにAPI接続を書きますが、まずは「動く」ことを優先して自動応答を設定
+    setTimeout(() => {
+      let reply = "承知しました。その内容は経費として認められる可能性が高いです。e-Taxの「経費」項目に入力しましょう。";
+      if (input.includes("医療費")) reply = "医療費控除ですね。年間10万円を超えた分が対象になります。領収書を準備しましょう！";
+      if (input.includes("やり方")) reply = "マイナンバーカードはお持ちですか？スマホのe-Taxアプリを使うのが一番簡単ですよ。";
+      
+      setMessages(prev => [...prev, { role: 'bot', text: reply }]);
+    }, 800);
   };
 
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+  }, [messages]);
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex justify-center font-sans antialiased text-slate-800 dark:text-slate-100 overflow-hidden transition-colors duration-500">
-
-      {/* Mobile Frame Container (Max width for web) */}
-      <div className="w-full max-w-md h-screen relative flex flex-col shadow-2xl bg-slate-50 dark:bg-slate-900 border-x border-slate-200 dark:border-slate-800 transition-colors duration-500">
-
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex justify-center transition-colors duration-500">
+      <div className="w-full max-w-md h-screen relative flex flex-col bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
+        
         {/* Header */}
-        <header className="px-6 pt-12 pb-4 flex justify-between items-center z-10 transition-colors duration-500">
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-slate-400 tracking-wide uppercase">Command Center</span>
-            <h1 className="text-2xl font-bold tracking-tight">Ultra-Sync AI</h1>
+        <header className="px-6 pt-10 pb-4 flex justify-between items-center border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <span className="text-xs font-bold text-indigo-500 uppercase tracking-widest">Support Mode</span>
+            <h1 className="text-xl font-bold dark:text-white">確定申告AI相棒</h1>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIsDark(!isDark)}
-              className="p-2 rounded-full bg-white/50 dark:bg-slate-800/50 backdrop-blur-md shadow-sm border border-slate-200/50 dark:border-slate-700/50 text-slate-600 dark:text-slate-300 transition-colors duration-500"
-            >
-              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-            <button className="p-2 rounded-full bg-white/50 dark:bg-slate-800/50 backdrop-blur-md shadow-sm border border-slate-200/50 dark:border-slate-700/50 text-slate-600 dark:text-slate-300 transition-colors duration-500">
-              <Settings2 className="w-5 h-5" />
-            </button>
-          </div>
+          <button onClick={() => setIsDark(!isDark)} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
         </header>
 
-        {/* 1. Top - リアルタイムメーター (Glassmorphism) */}
-        <section className="px-6 mb-6 z-10 transition-colors duration-500">
-          <div className="bg-white/70 dark:bg-slate-800/60 backdrop-blur-xl rounded-[28px] p-6 shadow-[0_10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.2)] border border-slate-100 dark:border-slate-700/50 relative overflow-hidden transition-colors duration-500">
-            {/* Ambient Background Glow */}
-            <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none transition-colors duration-500" />
-
-            <div className="flex flex-col gap-6 relative z-10">
-              <div>
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
-                  <TrendingUp className="w-4 h-4 text-emerald-500" /> 今期の純利益予測
-                </span>
-                <motion.div animate={controls} className="text-4xl font-mono font-medium tracking-tight mt-1">
-                  ¥{profit.toLocaleString()}
-                </motion.div>
-              </div>
-
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-700 to-transparent transition-colors duration-500" />
-
-              <div>
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-500 dark:text-slate-400 transition-colors duration-500">
-                  <Flame className="w-4 h-4 text-rose-500" /> 来年払う税金（概算）
-                </span>
-                <motion.div animate={controls} className="text-4xl font-mono font-medium tracking-tight mt-1 text-slate-900 dark:text-white transition-colors duration-500">
-                  ¥{taxAmount.toLocaleString()}
-                </motion.div>
-
-                {/* Visual Meter bar */}
-                <div className="mt-4 h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden transition-colors duration-500">
-                  <motion.div
-                    layout
-                    className="h-full bg-gradient-to-r from-rose-400 to-indigo-500 rounded-full"
-                    style={{ width: `${Math.min(100, (taxAmount / 1000000) * 100)}%` }}
-                  />
+        {/* Chat Area */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+          <AnimatePresence>
+            {messages.map((msg, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={clsx("flex items-start gap-3", msg.role === 'user' ? "flex-row-reverse" : "")}
+              >
+                <div className={clsx("p-2 rounded-full", msg.role === 'user' ? "bg-indigo-500" : "bg-slate-200 dark:bg-slate-700")}>
+                  {msg.role === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-slate-600 dark:text-slate-300" />}
                 </div>
-              </div>
-            </div>
-          </div>
-        </section>
+                <div className={clsx("max-w-[80%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm", 
+                  msg.role === 'user' ? "bg-indigo-500 text-white rounded-tr-none" : "bg-slate-100 dark:bg-slate-800 dark:text-slate-200 rounded-tl-none")}>
+                  {msg.text}
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
 
-        {/* 2. Middle - AIフィード (Dynamic Notification) */}
-        <section className="px-6 mb-4 z-10 transition-colors duration-500">
-          <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-[20px] p-4 flex gap-4 items-start shadow-sm transition-colors duration-500">
-            <div className="bg-white dark:bg-slate-800 p-2 rounded-full shadow-sm">
-              <Bell className="w-5 h-5 text-indigo-500" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-200 mb-1 transition-colors duration-500">AIからの提案</h3>
-              <p className="text-sm text-indigo-800/80 dark:text-indigo-300/80 leading-relaxed transition-colors duration-500">
-                通信費の家事按分比率を設定すると、さらに税金が約<strong className="font-mono">¥3,500</strong>安くなりますよ。設定画面へ進みますか？
-              </p>
-            </div>
+        {/* Input Area */}
+        <div className="p-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex gap-2 p-2 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 focus-within:ring-2 ring-indigo-500 transition-all">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+              placeholder="何でも相談してください..."
+              className="flex-1 bg-transparent border-none focus:outline-none px-2 py-1 dark:text-white"
+            />
+            <button onClick={handleSend} className="bg-indigo-500 p-2 rounded-xl text-white hover:bg-indigo-600 transition-colors">
+              <Send className="w-5 h-5" />
+            </button>
           </div>
-        </section>
-
-        {/* 3. Bottom - 未処理カンバンInbox */}
-        <div className="flex-1 w-full bg-slate-900 dark:bg-[#0F172A] rounded-t-[40px] shadow-[0_-20px_60px_rgba(0,0,0,0.15)] relative transition-colors duration-500">
-          <MobileInbox expenses={mockExpenses} onProcess={handleExpenseProcessed} />
         </div>
       </div>
     </div>
   );
+}
+
+// 簡単なレイアウト調整用
+function clsx(...classes: string[]) {
+  return classes.filter(Boolean).join(' ');
 }
