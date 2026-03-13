@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id             String    @id @default(uuid())
+  name           String
+  
+  settings       Settings?
+  expenses       Expense[]
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// 家事按分など、ユーザー全体の税務設定
+model Settings {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  // 家事按分比率（仕事で使う割合: 0.0 ~ 1.0）
+  rentRatio      Float        @default(0.0) // 家賃
+  electricRatio  Float        @default(0.0) // 電気代
+  internetRatio  Float        @default(0.0) // 通信費
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+// レシート・自動取込履歴などの経費トランザクション
+model Expense {
+  id               String       @id @default(uuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  
+  date             DateTime     @default(now())
+  amount           Int          // 支払総額
+  businessAmount   Int?         // [自動計算] 事業用としての経費額（按分適用後）
+  
+  merchantName     String?      // 店名
+  suggestedCategory String?     // 【日常語カテゴリ】例: "カフェ代", "交通費"
+  
+  status           String       @default("UNPROCESSED") // UNPROCESSED, COMPLETED
+  sharedType       String?      // RENT, ELECTRICITY, INTERNET, null
+  
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
