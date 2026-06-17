@@ -66,7 +66,8 @@ function buildDashboard() {
   const { calls, agents, types, maxDate } = collectCalls_(ss);
   const months = collectMonths_(calls, maxDate);
   writeCalcSheet_(ss, calls, months);
-  ensureGoalSheet_(ss);
+  const goal = ensureGoalSheet_(ss);
+  ensureRulesTable_(goal);
   // 旧：別シート版の達成ペースがあれば撤去（ダッシュボードに統合したため）
   const oldTrend = ss.getSheetByName(CONFIG.TREND_SHEET);
   if (oldTrend) ss.deleteSheet(oldTrend);
@@ -276,11 +277,33 @@ function ensureGoalSheet_(ss) {
   return g;
 }
 
+/** おすすめ打ち手のルール表を目標シート(F:I列)に用意。
+ *  既に存在する場合は上書きしない（ユーザーの編集を保持） */
+function ensureRulesTable_(g) {
+  if (g.getRange('F1').getValue() !== '') return;
+  g.getRange('F1').setValue('おすすめ打ち手ルール（編集可：閾値と打ち手の文言を変更できます）')
+    .setFontWeight('bold');
+  g.getRange('F2:I2').setValues([['優先', '条件', '閾値', '打ち手']])
+    .setFontWeight('bold').setBackground('#f1f5f9');
+  const rows = [
+    [1, 'アポ率達成＆担当接触率OK', '', '✅ 好調キープ'],
+    [2, '受付突破率がこの値未満', CONFIG.PASS_RATE_BENCH, '受付突破↑（受付トーク改善）'],
+    [3, '接触→アポ率がこの値未満', CONFIG.CONTACT_TO_APPT_BENCH, '担当トーク↑（接触後の提案改善）'],
+    [4, '上記すべてOK（歩留り良好）', '', '歩留り良好→架電量↑'],
+    ['-', '架電なし（架電件数0）', '', '架電なし'],
+  ];
+  g.getRange(3, 6, rows.length, 4).setValues(rows);
+  g.getRange('H4:H5').setNumberFormat('0%');
+  g.setColumnWidth(7, 210);
+  g.setColumnWidth(9, 260);
+}
+
 function resetGoalSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const old = ss.getSheetByName(CONFIG.GOAL_SHEET);
   if (old) ss.deleteSheet(old);
-  ensureGoalSheet_(ss);
+  const g = ensureGoalSheet_(ss);
+  ensureRulesTable_(g);
   SpreadsheetApp.getUi().alert('目標シートを初期化しました。');
 }
 
@@ -289,8 +312,6 @@ function layoutDashboard_(ss, agents, types, months) {
   const CN = "'" + CONFIG.CALC_SHEET + "'";
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
   const bench = CONFIG.CONTACT_RATE_BENCH;
-  const pass = CONFIG.PASS_RATE_BENCH;
-  const ca = CONFIG.CONTACT_TO_APPT_BENCH;
 
   // 集計範囲・判定セル（_集計データの列）
   const A = CN + '!$A:$A', B = CN + '!$B:$B', Cc = CN + '!$C:$C',
@@ -410,12 +431,13 @@ function layoutDashboard_(ss, agents, types, months) {
       '=IF($J' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$J' + r + ';"color1","#6366f1";"empty","zero"}))'
     );
     // おすすめの打ち手（ファネルの最弱点を1つ提示）
+    // 打ち手は目標シートのルール表(F:I)を参照（閾値・文言はシートで編集可）
     dash.getRange(r, 15).setFormula(
-      '=IF($B' + r + '=0,"架電なし",' +
-      'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"✅ 好調キープ",' +
-      'IF($F' + r + '<' + pass + ',"受付突破↑（受付トーク改善）",' +
-      'IF($H' + r + '<' + ca + ',"担当トーク↑（接触後の提案改善）",' +
-      '"歩留り良好→架電量↑"))))'
+      '=IF($B' + r + '=0,' + GN + '!$I$7,' +
+      'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),' + GN + '!$I$3,' +
+      'IF($F' + r + '<' + GN + '!$H$4,' + GN + '!$I$4,' +
+      'IF($H' + r + '<' + GN + '!$H$5,' + GN + '!$I$5,' +
+      GN + '!$I$6))))'
     );
   }
 
