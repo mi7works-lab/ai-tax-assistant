@@ -81,7 +81,7 @@ function collectMonths_(calls, maxDate) {
     seen[key] = true;
     const wk = generateWeeks_(d);
     list.push({
-      label: d.getFullYear() + '/' + ('0' + (d.getMonth() + 1)).slice(-2),
+      label: d.getFullYear() + '年' + (d.getMonth() + 1) + '月', // 日付化け防止のため「年/月」表記
       monthStart: wk.monthStart,
       monthEnd: wk.monthEnd,
       weeks: wk.weeks,
@@ -92,7 +92,7 @@ function collectMonths_(calls, maxDate) {
     const d = maxDate || new Date();
     const wk = generateWeeks_(d);
     list.push({
-      label: d.getFullYear() + '/' + ('0' + (d.getMonth() + 1)).slice(-2),
+      label: d.getFullYear() + '年' + (d.getMonth() + 1) + '月',
       monthStart: wk.monthStart, monthEnd: wk.monthEnd, weeks: wk.weeks,
       sort: d.getFullYear() * 12 + d.getMonth(),
     });
@@ -225,12 +225,14 @@ function writeCalcSheet_(ss, calls, months) {
     });
   });
   if (weekRows.length) {
+    calc.getRange(1, 10, weekRows.length, 1).setNumberFormat('@'); // キーは文字列で保持
     calc.getRange(1, 10, weekRows.length, 3).setValues(weekRows);
     calc.getRange(1, 11, weekRows.length, 2).setNumberFormat('yyyy/mm/dd');
   }
 
   // N:P = 月テーブル（対象月ラベル, 月初, 月末）
   const monthRows = months.map(mo => [mo.label, mo.monthStart, mo.monthEnd]);
+  calc.getRange(1, 14, monthRows.length, 1).setNumberFormat('@'); // ラベルは文字列で保持
   calc.getRange(1, 14, monthRows.length, 3).setValues(monthRows);
   calc.getRange(1, 15, monthRows.length, 2).setNumberFormat('yyyy/mm/dd');
 
@@ -298,11 +300,6 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange('A1:L1').merge().setValue('架電KPIダッシュボード')
     .setFontSize(20).setFontWeight('bold').setVerticalAlignment('middle');
   dash.setRowHeight(1, 42);
-  dash.getRange('A2:L2').merge();
-  dash.getRange('A2').setFormula(
-    '="対象期間 "&TEXT(' + sd + ',"yyyy/m/d")&" 〜 "&TEXT(' + ed + ',"yyyy/m/d")' +
-    '&"　|　種別："&C3&"　|　"&C4&"　|　"&C5'
-  ).setFontColor('#64748b');
 
   // ---- コントロール（種別 / 対象月 / 期間モード / 週 / 任意期間） ----
   const monthLabels = months.map(m => m.label);
@@ -319,7 +316,7 @@ function layoutDashboard_(ss, agents, types, months) {
     .setBackground('#eef2ff').setFontWeight('bold');
 
   dash.getRange('A4').setValue('対象月').setFontWeight('bold');
-  dash.getRange('C4')
+  dash.getRange('C4').setNumberFormat('@') // 文字列固定（日付化け防止）
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(monthLabels, true).setAllowInvalid(false).build())
     .setValue(monthLabels.indexOf(prev.month) >= 0 ? prev.month : latestMonth)
     .setBackground('#eef2ff').setFontWeight('bold');
