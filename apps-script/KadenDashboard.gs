@@ -300,6 +300,26 @@ function ensureRulesTable_(g) {
   g.getRange('H4:H5').setNumberFormat('0%');
   g.setColumnWidth(7, 210);
   g.setColumnWidth(9, 260);
+
+  // 編集ガイド（使い手向けの説明）
+  const guide = [
+    ['【このシートの編集ガイド】'],
+    ['◎ 編集すると反映される'],
+    ['　・左の表 A〜D列（メンバー／稼働数／月間架電目標／目標アポ率）… 集計・判定・達成ペースに反映'],
+    ['　・ルール表 H列（閾値）… 受付突破率・接触→アポ率の判定ライン。ダッシュボードに即反映'],
+    ['　・ルール表 I列（打ち手）… 表示される打ち手の文言。ダッシュボードに即反映'],
+    ['× 編集しても反映されない（説明用ラベル）'],
+    ['　・ルール表 F列（優先）／ G列（条件）… 判定の指標・順序はプログラム側に固定'],
+    ['メモ：メンバーを増やすときは左の表に行を追加 →メニュー「架電ダッシュボード > ① 集計を更新」を実行。'],
+    ['　　　種別／対象月／期間モードの切替は自動で再計算されます（再実行不要）。'],
+  ];
+  const gStart = 10;
+  g.getRange(gStart, 6).setValue(guide[0][0]).setFontWeight('bold').setBackground('#eef2ff');
+  for (let i = 1; i < guide.length; i++) {
+    g.getRange(gStart + i, 6).setValue(guide[i][0])
+      .setFontColor(/^[◎×]/.test(guide[i][0]) ? '#3730a3' : '#475569')
+      .setFontWeight(/^[◎×]/.test(guide[i][0]) ? 'bold' : 'normal');
+  }
 }
 
 function resetGoalSheet() {
