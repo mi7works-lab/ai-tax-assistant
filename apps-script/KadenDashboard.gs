@@ -588,7 +588,7 @@ function layoutDashboard_(ss, agents, types, months) {
   // ---- 体裁（1画面に収める＋ヘッダーを整える）----
   dash.setColumnWidth(1, 88);          // メンバー
   dash.setColumnWidths(2, 12, 82);     // 架電件数〜目標アポ率
-  dash.setColumnWidth(14, 84);         // 進捗バー
+  dash.setColumnWidth(14, 200);        // 進捗バー（目盛りを広く取り差を見やすく）
   dash.setColumnWidth(15, 170);        // おすすめの打ち手（右が空欄なら溢れて表示）
   dash.getRange(HR, 1, 1, 15)
     .setWrap(true).setVerticalAlignment('middle').setHorizontalAlignment('center'); // ヘッダー折り返し＋中央
