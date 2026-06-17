@@ -314,12 +314,17 @@ function ensureGoalSheet_(ss) {
   let g = ss.getSheetByName(CONFIG.GOAL_SHEET);
   if (g) return g;
   g = ss.insertSheet(CONFIG.GOAL_SHEET);
+  seedGoalSheet_(g);
+  return g;
+}
+
+/** 目標の見出し＋初期値を書き込む */
+function seedGoalSheet_(g) {
   g.getRange(1, 1, 1, 4).setValues([['メンバー', '稼働数', '月間架電目標', '目標アポ率']])
     .setFontWeight('bold').setBackground('#f1f5f9');
   g.getRange(2, 1, GOAL_SEED.length, 4).setValues(GOAL_SEED);
   g.getRange(2, 4, GOAL_SEED.length, 1).setNumberFormat('0.0%');
   g.setColumnWidths(1, 4, 120);
-  return g;
 }
 
 /** おすすめ打ち手のルール表を目標シート(F:I列)に用意。
@@ -364,11 +369,17 @@ function ensureRulesTable_(g) {
 
 function resetGoalSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const old = ss.getSheetByName(CONFIG.GOAL_SHEET);
-  if (old) ss.deleteSheet(old);
-  const g = ensureGoalSheet_(ss);
+  let g = ss.getSheetByName(CONFIG.GOAL_SHEET);
+  if (g) {
+    // 削除せず中身だけクリア（シートを残すことでダッシュボードの参照が壊れない）
+    g.clear();
+    g.clearNotes();
+  } else {
+    g = ss.insertSheet(CONFIG.GOAL_SHEET);
+  }
+  seedGoalSheet_(g);
   ensureRulesTable_(g);
-  SpreadsheetApp.getUi().alert('目標シートを初期化しました。');
+  SpreadsheetApp.getUi().alert('目標シートを初期化しました。ダッシュボードへ反映するにはメニュー「① 集計を更新」を実行してください。');
 }
 
 /** ダッシュボードのレイアウト・数式・書式を構築 */
@@ -498,12 +509,12 @@ function layoutDashboard_(ss, agents, types, months) {
     // 打ち手は目標シートのルール表(F:I)を参照（閾値・文言はシートで編集可）
     // 目標未設定（月間架電目標=空）の人は打ち手も空欄
     dash.getRange(r, 15).setFormula(
-      '=IF($J' + r + '="","",' +
+      '=IFERROR(IF($J' + r + '="","",' +
       'IF($B' + r + '=0,' + GN + '!$I$7,' +
       'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),' + GN + '!$I$3,' +
       'IF($F' + r + '<' + GN + '!$H$4,' + GN + '!$I$4,' +
       'IF($H' + r + '<' + GN + '!$H$5,' + GN + '!$I$5,' +
-      GN + '!$I$6)))))'
+      GN + '!$I$6))))),"")'
     );
   }
 
