@@ -445,13 +445,13 @@ function layoutDashboard_(ss, agents, types, months) {
     .setValue(modeList.indexOf(prev.mode) >= 0 ? prev.mode : '月間')
     .setBackground('#eef2ff').setFontWeight('bold').setHorizontalAlignment('left');
 
-  dash.getRange('A6').setValue('週を選択（週次のとき）').setFontColor('#64748b');
+  dash.getRange('A6').setValue('週を選択').setFontColor('#64748b');
   dash.getRange('C6')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(weekLabels, true).setAllowInvalid(true).build())
     .setValue(weekLabels.indexOf(prev.week) >= 0 ? prev.week : (weekLabels[0] || ''))
     .setHorizontalAlignment('left');
 
-  dash.getRange('A7').setValue('任意期間（任意期間のとき）').setFontColor('#64748b');
+  dash.getRange('A7').setValue('任意期間').setFontColor('#64748b');
   const latest = months[months.length - 1];
   dash.getRange('C7').setValue(latest.monthStart).setNumberFormat('yyyy/mm/dd');
   dash.getRange('D7').setValue('〜').setHorizontalAlignment('center');
