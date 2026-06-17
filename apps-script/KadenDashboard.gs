@@ -358,7 +358,7 @@ function layoutDashboard_(ss, agents, types, months) {
   const last = HR + n;
   const rt = last + 1;          // 合計行
 
-  const header = ['メンバー', '架電件数', '通電数', '通電率', '担当接触数',
+  const header = ['メンバー', '架電件数', '有効架電数', '有効率', '担当接触数',
     '受付突破率', 'アポ数', '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗',
     '目標アポ率', '判定', '進捗バー', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
@@ -366,8 +366,8 @@ function layoutDashboard_(ss, agents, types, months) {
 
   for (let i = 0; i < n; i++) {
     const r = first + i;
-    // 列: B架電 C通電数 D通電率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
-    //     I アポ率 J月間架電目標 K目標進捗 L目標アポ率 M判定 N進捗バー
+    // 列: B架電 C有効架電数 D有効率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
+    //     I アポ率 J月間架電目標 K目標進捗 L目標アポ率 M判定 N進捗バー O打ち手
     dash.getRange(r, 1).setValue(agents[i]);
     dash.getRange(r, 2).setFormula('=COUNTIFS(' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
     dash.getRange(r, 3).setFormula('=SUMIFS(' + Gc + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
@@ -390,7 +390,7 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 15).setFormula(
       '=IF($B' + r + '=0,"架電なし",' +
       'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"✅ 好調キープ",' +
-      'IF($D' + r + '<' + conn + ',"通電↑（リスト精査・架電時間帯）",' +
+      'IF($D' + r + '<' + conn + ',"有効架電↑（リスト精査・架電時間帯）",' +
       'IF($F' + r + '<' + pass + ',"受付突破↑（受付トーク改善）",' +
       'IF($H' + r + '<' + ca + ',"担当トーク↑（接触後の提案改善）",' +
       '"歩留り良好→架電量↑")))))'
@@ -417,22 +417,10 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 1, 1, 15).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
-  // ---- 重点アクション（チーム全体のおすすめ打ち手）----
-  dash.getRange('A10:O10').merge();
-  dash.getRange('A10').setFormula(
-    '=LET(j,TEXTJOIN("　／　",TRUE,' +
-    'IF(AND($C$5="月間",$K$' + rt + '<' + vol + '),"①架電量を上げる（進捗"&TEXT($K$' + rt + ',"0%")&"）",""),' +
-    'IF($D$' + rt + '<' + conn + ',"通電率を上げる：リスト精査・架電時間帯の見直し（"&TEXT($D$' + rt + ',"0%")&"）",""),' +
-    'IF($F$' + rt + '<' + pass + ',"受付突破トークを改善（"&TEXT($F$' + rt + ',"0%")&"）",""),' +
-    'IF($H$' + rt + '<' + ca + ',"担当接触後のトーク・提案を改善（"&TEXT($H$' + rt + ',"0.0%")&"）","")),' +
-    '"🎯 重点アクション：　"&IF(j="","好調をキープ。架電量を積み増してアポ母数を拡大",j))'
-  ).setFontWeight('bold').setVerticalAlignment('middle').setBackground('#eef2ff').setFontColor('#3730a3');
-  dash.setRowHeight(10, 32);
-
   // ---- KPI（合計行を参照） ----
   const kpis = [
     ['総架電数', '=B' + rt, '#'],
-    ['通電率', '=D' + rt, '%1'],
+    ['有効率', '=D' + rt, '%1'],
     ['担当接触率', '=IF(B' + rt + '=0,0,E' + rt + '/B' + rt + ')', '%1'],
     ['平均アポ率', '=I' + rt, '%2'],
   ];
