@@ -292,7 +292,7 @@ function layoutDashboard_(ss, agents, types, wk) {
   const rt = last + 1;          // 合計行
 
   const header = ['メンバー', '架電件数', '担当接触数', '担当接触率', 'アポ数',
-    '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗', '目標アポ率', '判定'];
+    '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗', '目標アポ率', '判定', '進捗バー'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
@@ -311,6 +311,10 @@ function layoutDashboard_(ss, agents, types, wk) {
     dash.getRange(r, 11).setFormula(
       '=IF($E' + r + '=0,"未達",IF(AND($G' + r + '>=$J' + r + ',$D' + r + '>=' + bench + '),"達成","要注意"))'
     );
+    // 進捗バー（架電件数 / 月間架電目標）
+    dash.getRange(r, 12).setFormula(
+      '=IF($H' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$H' + r + ';"color1","#6366f1";"empty","zero"}))'
+    );
   }
 
   // 合計 / 平均 行
@@ -325,7 +329,10 @@ function layoutDashboard_(ss, agents, types, wk) {
   dash.getRange(rt, 9).setFormula('=IF($H' + rt + '=0,"",$B' + rt + '/$H' + rt + ')');
   dash.getRange(rt, 10).setFormula('=IFERROR(SUMPRODUCT(H' + first + ':H' + last + ',J' + first + ':J' + last + ')/$H' + rt + ',0)');
   dash.getRange(rt, 11).setFormula('=COUNTIF(K' + first + ':K' + last + ',"達成")&" / ' + n + '名 達成"');
-  dash.getRange(rt, 1, 1, 11).setBackground('#f8fafc').setFontWeight('bold')
+  dash.getRange(rt, 12).setFormula(
+    '=IF($H' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$H' + rt + ';"color1","#4f46e5";"empty","zero"}))'
+  );
+  dash.getRange(rt, 1, 1, 12).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // ---- KPI（合計行を参照） ----
@@ -339,6 +346,20 @@ function layoutDashboard_(ss, agents, types, wk) {
     if (k[2] === '%1') v.setNumberFormat('0.0%');
     if (k[2] === '%2') v.setNumberFormat('0.00%');
   });
+
+  // ---- アラート（目標未達の自動サマリー） ----
+  const benchPct = Math.round(bench * 100);
+  const Kr = 'K' + first + ':K' + last;
+  const Er = 'E' + first + ':E' + last;
+  const Dr = 'D' + first + ':D' + last;
+  const Br = 'B' + first + ':B' + last;
+  dash.getRange('A10:L10').merge();
+  dash.getRange('A10').setFormula(
+    '="⚠ 未達 "&COUNTIF(' + Kr + ',"未達")&"名　｜　アポ0 "&COUNTIF(' + Er + ',0)' +
+    '&"名　｜　接触率<' + benchPct + '% "&COUNTIFS(' + Dr + ',"<' + bench + '",' + Br + ',">0")' +
+    '&"名　　　✅ 目標達成 "&COUNTIF(' + Kr + ',"達成")&" / ' + n + '名"'
+  ).setFontWeight('bold').setVerticalAlignment('middle');
+  dash.setRowHeight(10, 30);
 
   // ---- 数値書式 ----
   dash.getRange(first, 2, n + 1, 1).setNumberFormat('#,##0');
@@ -368,13 +389,21 @@ function layoutDashboard_(ss, agents, types, wk) {
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('達成')
     .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
+  // アラート行：未達がある=赤 / 全員達成=緑
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=COUNTIF($K$' + first + ':$K$' + last + ',"未達")>0')
+    .setBackground('#fff1f2').setFontColor('#be123c').setRanges([dash.getRange('A10:L10')]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=COUNTIF($K$' + first + ':$K$' + last + ',"未達")=0')
+    .setBackground('#ecfdf5').setFontColor('#047857').setRanges([dash.getRange('A10:L10')]).build());
   dash.setConditionalFormatRules(rules);
 
   // ---- 体裁 ----
   dash.setColumnWidth(1, 130);
   dash.setColumnWidths(2, 10, 92);
+  dash.setColumnWidth(12, 150);
   dash.setFrozenRows(HR);
-  dash.getRange(HR, 1, n + 2, 11)
+  dash.getRange(HR, 1, n + 2, 12)
     .setBorder(true, true, true, true, true, true, '#e2e8f0', SpreadsheetApp.BorderStyle.SOLID);
   dash.setHiddenGridlines(true);
   ss.setActiveSheet(dash);
