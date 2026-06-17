@@ -36,7 +36,7 @@ const CONFIG = {
   CONTACT_RATE_BENCH: 0.2,       // 担当接触率の基準（これ未満を黄色で警告）
 
   // ▼ おすすめの打ち手（Next Action）判定の基準。自社水準に合わせて調整可
-  CONNECT_RATE_BENCH: 0.4,       // 通電率：これ未満なら「リスト精査・架電時間帯」
+  CONNECT_RATE_BENCH: 0.4,       // 接触率：これ未満なら「リスト精査・架電時間帯」
   PASS_RATE_BENCH: 0.3,          // 受付突破率：これ未満なら「受付トーク改善」
   CONTACT_TO_APPT_BENCH: 0.05,   // 接触→アポ率：これ未満なら「担当トーク改善」
   VOLUME_PROGRESS_BENCH: 0.8,    // 月間架電目標の進捗：これ未満なら「架電量を上げる」（月間表示時）
@@ -358,15 +358,35 @@ function layoutDashboard_(ss, agents, types, months) {
   const last = HR + n;
   const rt = last + 1;          // 合計行
 
-  const header = ['メンバー', '架電件数', '有効架電数', '有効率', '担当接触数',
+  const header = ['メンバー', '架電件数', '接触数', '接触率', '担当接触数',
     '受付突破率', 'アポ数', '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗',
     '目標アポ率', '判定', '進捗バー', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
+  // 各項目の説明（ヘッダーにマウスを乗せると表示されるコメント）
+  const notes = [
+    '架電担当者',
+    '架電日が入っている架電の総数（1〜4回目を各回1件としてカウント）',
+    '誰かと話せた架電数 ＝ 受付対応(3〜6) ＋ 担当接触(7〜10)。不通(1)・現アナ(2)は含まない',
+    '接触数 ÷ 架電件数。電話がつながって人が出た割合（リストの番号品質・架電時間帯の指標）',
+    '担当者本人と話せた架電数。架電結果が「担当接触：…」(7〜10)',
+    '担当接触数 ÷ 接触数。受付を突破して担当者まで到達できた割合（受付トークの実力）',
+    'アポ獲得数。架電結果が「担当接触：アポ」(10)',
+    'アポ数 ÷ 担当接触数。担当者と話せたうちアポになった割合（担当クロージング力）',
+    'アポ数 ÷ 架電件数。全架電に対するアポ獲得率',
+    '目標シートの「月間架電目標」',
+    '架電件数 ÷ 月間架電目標',
+    '目標シートの「目標アポ率」',
+    'アポ率が目標以上かつ担当接触率20%以上で「達成」／アポ0で「未達」／その他「要注意」',
+    '架電件数 ÷ 月間架電目標 のバー表示',
+    'ファネルの最弱点に応じた次の一手（効く順に1つ提示）',
+  ];
+  notes.forEach((note, i) => dash.getRange(HR, i + 1).setNote(note));
+
   for (let i = 0; i < n; i++) {
     const r = first + i;
-    // 列: B架電 C有効架電数 D有効率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
+    // 列: B架電 C接触数 D接触率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
     //     I アポ率 J月間架電目標 K目標進捗 L目標アポ率 M判定 N進捗バー O打ち手
     dash.getRange(r, 1).setValue(agents[i]);
     dash.getRange(r, 2).setFormula('=COUNTIFS(' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
@@ -390,7 +410,7 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 15).setFormula(
       '=IF($B' + r + '=0,"架電なし",' +
       'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"✅ 好調キープ",' +
-      'IF($D' + r + '<' + conn + ',"有効架電↑（リスト精査・架電時間帯）",' +
+      'IF($D' + r + '<' + conn + ',"接触↑（リスト精査・架電時間帯）",' +
       'IF($F' + r + '<' + pass + ',"受付突破↑（受付トーク改善）",' +
       'IF($H' + r + '<' + ca + ',"担当トーク↑（接触後の提案改善）",' +
       '"歩留り良好→架電量↑")))))'
@@ -419,14 +439,14 @@ function layoutDashboard_(ss, agents, types, months) {
 
   // ---- KPI（合計行を参照） ----
   const kpis = [
-    ['総架電数', '=B' + rt, '#'],
-    ['有効率', '=D' + rt, '%1'],
-    ['担当接触率', '=IF(B' + rt + '=0,0,E' + rt + '/B' + rt + ')', '%1'],
-    ['平均アポ率', '=I' + rt, '%2'],
+    ['総架電数', '=B' + rt, '#', '対象期間・種別の総架電件数'],
+    ['接触率', '=D' + rt, '%1', '誰かと話せた率（接触数÷架電件数）'],
+    ['担当接触率', '=IF(B' + rt + '=0,0,E' + rt + '/B' + rt + ')', '%1', '担当者まで届いた率（担当接触数÷架電件数）'],
+    ['平均アポ率', '=I' + rt, '%2', 'アポ数÷架電件数'],
   ];
   kpis.forEach((k, i) => {
     const c = 1 + i * 3;
-    dash.getRange(8, c).setValue(k[0]).setFontColor('#64748b').setFontWeight('bold');
+    dash.getRange(8, c).setValue(k[0]).setFontColor('#64748b').setFontWeight('bold').setNote(k[3]);
     const v = dash.getRange(9, c).setFormula(k[1]).setFontSize(18).setFontWeight('bold');
     if (k[2] === '#') v.setNumberFormat('#,##0');
     if (k[2] === '%1') v.setNumberFormat('0.0%');
