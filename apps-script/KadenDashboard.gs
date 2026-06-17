@@ -419,30 +419,37 @@ function layoutDashboard_(ss, agents, types, months) {
   for (let i = 1; i <= maxWeeks; i++) weekLabels.push('第' + i + '週');
   const latestMonth = monthLabels[monthLabels.length - 1] || '';
 
+  // コントロールの値セルは C:D を結合して幅を確保（データ列幅に縛られない）
+  dash.getRange('C3:D3').merge();
+  dash.getRange('C4:D4').merge();
+  dash.getRange('C5:D5').merge();
+  dash.getRange('C6:D6').merge();
+
   dash.getRange('A3').setValue('種別フィルタ').setFontWeight('bold');
   const typeList = ['全体'].concat(types);
   dash.getRange('C3')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(typeList, true).setAllowInvalid(false).build())
     .setValue(typeList.indexOf(prev.type) >= 0 ? prev.type : '全体')
-    .setBackground('#eef2ff').setFontWeight('bold');
+    .setBackground('#eef2ff').setFontWeight('bold').setHorizontalAlignment('left');
 
   dash.getRange('A4').setValue('対象月').setFontWeight('bold');
   dash.getRange('C4').setNumberFormat('@') // 文字列固定（日付化け防止）
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(monthLabels, true).setAllowInvalid(false).build())
     .setValue(monthLabels.indexOf(prev.month) >= 0 ? prev.month : latestMonth)
-    .setBackground('#eef2ff').setFontWeight('bold');
+    .setBackground('#eef2ff').setFontWeight('bold').setHorizontalAlignment('left');
 
   dash.getRange('A5').setValue('期間モード').setFontWeight('bold');
   const modeList = ['月間', '週次', '任意期間'];
   dash.getRange('C5')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(modeList, true).setAllowInvalid(false).build())
     .setValue(modeList.indexOf(prev.mode) >= 0 ? prev.mode : '月間')
-    .setBackground('#eef2ff').setFontWeight('bold');
+    .setBackground('#eef2ff').setFontWeight('bold').setHorizontalAlignment('left');
 
   dash.getRange('A6').setValue('週を選択（週次のとき）').setFontColor('#64748b');
   dash.getRange('C6')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(weekLabels, true).setAllowInvalid(true).build())
-    .setValue(weekLabels.indexOf(prev.week) >= 0 ? prev.week : (weekLabels[0] || ''));
+    .setValue(weekLabels.indexOf(prev.week) >= 0 ? prev.week : (weekLabels[0] || ''))
+    .setHorizontalAlignment('left');
 
   dash.getRange('A7').setValue('任意期間（任意期間のとき）').setFontColor('#64748b');
   const latest = months[months.length - 1];
@@ -578,12 +585,14 @@ function layoutDashboard_(ss, agents, types, months) {
     .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 13, n, 1)]).build());
   dash.setConditionalFormatRules(rules);
 
-  // ---- 体裁（1画面に収まるよう列幅を圧縮＋ヘッダー折り返し）----
-  dash.setColumnWidth(1, 84);          // メンバー
-  dash.setColumnWidths(2, 12, 68);     // 架電件数〜目標アポ率
-  dash.setColumnWidth(14, 80);         // 進捗バー
-  dash.setColumnWidth(15, 150);        // おすすめの打ち手（右が空欄なら溢れて表示）
-  dash.getRange(HR, 1, 1, 15).setWrap(true).setVerticalAlignment('middle'); // ヘッダーは折り返し
+  // ---- 体裁（1画面に収める＋ヘッダーを整える）----
+  dash.setColumnWidth(1, 88);          // メンバー
+  dash.setColumnWidths(2, 12, 82);     // 架電件数〜目標アポ率
+  dash.setColumnWidth(14, 84);         // 進捗バー
+  dash.setColumnWidth(15, 170);        // おすすめの打ち手（右が空欄なら溢れて表示）
+  dash.getRange(HR, 1, 1, 15)
+    .setWrap(true).setVerticalAlignment('middle').setHorizontalAlignment('center'); // ヘッダー折り返し＋中央
+  dash.setRowHeight(HR, 34);
   dash.getRange(first, 1, n + 1, 15).setFontSize(10);
   dash.setFrozenRows(HR);
   dash.getRange(HR, 1, n + 2, 15)
