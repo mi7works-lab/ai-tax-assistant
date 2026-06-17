@@ -37,10 +37,9 @@ const CONFIG = {
   CONTACT_RATE_BENCH: 0.2,       // 担当接触率の基準（これ未満を黄色で警告）
 
   // ▼ おすすめの打ち手（Next Action）判定の基準。自社水準に合わせて調整可
-  CONNECT_RATE_BENCH: 0.4,       // 接触率：これ未満なら「リスト精査・架電時間帯」
+  //   ※接触率は外的要因（リスト品質・時間帯）のため打ち手対象から除外
   PASS_RATE_BENCH: 0.3,          // 受付突破率：これ未満なら「受付トーク改善」
   CONTACT_TO_APPT_BENCH: 0.05,   // 接触→アポ率：これ未満なら「担当トーク改善」
-  VOLUME_PROGRESS_BENCH: 0.8,    // 月間架電目標の進捗：これ未満なら「架電量を上げる」（月間表示時）
 };
 
 // 目標シートの初期値（メンバー, 稼働数, 月間架電目標, 目標アポ率）
@@ -289,10 +288,8 @@ function layoutDashboard_(ss, agents, types, months) {
   const CN = "'" + CONFIG.CALC_SHEET + "'";
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
   const bench = CONFIG.CONTACT_RATE_BENCH;
-  const conn = CONFIG.CONNECT_RATE_BENCH;
   const pass = CONFIG.PASS_RATE_BENCH;
   const ca = CONFIG.CONTACT_TO_APPT_BENCH;
-  const vol = CONFIG.VOLUME_PROGRESS_BENCH;
 
   // 集計範囲・判定セル（_集計データの列）
   const A = CN + '!$A:$A', B = CN + '!$B:$B', Cc = CN + '!$C:$C',
@@ -415,10 +412,9 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 15).setFormula(
       '=IF($B' + r + '=0,"架電なし",' +
       'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"✅ 好調キープ",' +
-      'IF($D' + r + '<' + conn + ',"接触↑（リスト精査・架電時間帯）",' +
       'IF($F' + r + '<' + pass + ',"受付突破↑（受付トーク改善）",' +
       'IF($H' + r + '<' + ca + ',"担当トーク↑（接触後の提案改善）",' +
-      '"歩留り良好→架電量↑")))))'
+      '"歩留り良好→架電量↑"))))'
     );
   }
 
