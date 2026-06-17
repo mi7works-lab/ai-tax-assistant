@@ -12,6 +12,8 @@ import {
   Handshake,
   CalendarCheck,
   Trophy,
+  LayoutDashboard,
+  Table2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -42,7 +44,7 @@ interface Member {
   stats: Record<CallType, TypeStat>;
 }
 
-const PERIOD_LABEL = '6/1 〜 6/4';
+const PERIOD_LABEL = '6月（月間集計）';
 const MONTH_LABEL = '6月';
 
 // 集計元データ（種別ごとの合計は月間サマリーの実数と一致）
@@ -273,6 +275,7 @@ function KpiCard({
 
 export default function Dashboard() {
   const [filter, setFilter] = useState<Filter>('all');
+  const [view, setView] = useState<'dashboard' | 'sheet'>('dashboard');
 
   const members = useMemo(() => MEMBERS.map((m) => deriveMember(m, filter)), [filter]);
 
@@ -366,7 +369,7 @@ export default function Dashboard() {
             <p className="mt-1 flex items-center gap-3 text-sm text-slate-500">
               <span className="inline-flex items-center gap-1">
                 <CalendarDays className="h-4 w-4" />
-                期間 {PERIOD_LABEL}
+                対象 {PERIOD_LABEL}
               </span>
               <span className="inline-flex items-center gap-1">
                 <Users className="h-4 w-4" />
@@ -375,8 +378,38 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* 種別プルダウン */}
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-end gap-3">
+            {/* 表示切替 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-slate-500">表示</label>
+              <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                <button
+                  onClick={() => setView('dashboard')}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition ${
+                    view === 'dashboard'
+                      ? 'bg-indigo-500 text-white shadow'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  ダッシュボード
+                </button>
+                <button
+                  onClick={() => setView('sheet')}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold transition ${
+                    view === 'sheet'
+                      ? 'bg-indigo-500 text-white shadow'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Table2 className="h-4 w-4" />
+                  月間シート
+                </button>
+              </div>
+            </div>
+
+            {/* 種別プルダウン */}
+            <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold text-slate-500">種別フィルタ</label>
             <div className="relative">
               <select
@@ -393,9 +426,14 @@ export default function Dashboard() {
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             </div>
+            </div>
           </div>
         </header>
 
+        {view === 'sheet' && <SheetView members={members} team={team} filter={filter} />}
+
+        {view === 'dashboard' && (
+          <>
         {/* ===== KPIカード ===== */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
@@ -665,12 +703,173 @@ export default function Dashboard() {
             })}
           </div>
         </section>
+          </>
+        )}
 
         <footer className="mt-10 text-center text-xs text-slate-400">
-          集計元：{MONTH_LABEL}架電実績 ／ 期間 {PERIOD_LABEL} ・ カードをクリックで種別フィルタ
+          集計元：{MONTH_LABEL}架電ログ（架電担当者 × サービス種別で集計）・ {PERIOD_LABEL}
         </footer>
       </div>
     </div>
+  );
+}
+
+interface TeamMetrics {
+  calls: number;
+  contacts: number;
+  appts: number;
+  targetCalls: number;
+  callProgress: number;
+  contactRate: number;
+  apptRate: number;
+  apptTarget: number;
+  achievedApptTarget: number;
+}
+
+function SheetView({
+  members,
+  team,
+  filter,
+}: {
+  members: DerivedMetrics[];
+  team: TeamMetrics;
+  filter: Filter;
+}) {
+  const totalApptFromContact = safeDiv(team.appts, team.contacts);
+
+  return (
+    <section className="mt-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-bold">月間サマリー（シート表示）</h2>
+        <div className="flex items-center gap-3 text-xs text-slate-400">
+          <span>{filter === 'all' ? '全体（3種合計）' : `種別：${filter}`}</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-sm bg-rose-100 ring-1 ring-rose-200" />
+            未達(NA)セル
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[860px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-50 text-left text-xs font-bold text-slate-500">
+              <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3">メンバー</th>
+              <th className="px-3 py-3 text-right">架電件数</th>
+              <th className="px-3 py-3 text-right">担当接触数</th>
+              <th className="px-3 py-3 text-right">担当接触率</th>
+              <th className="px-3 py-3 text-right">アポ数</th>
+              <th className="px-3 py-3 text-right">接触→アポ率</th>
+              <th className="px-3 py-3 text-right">アポ率</th>
+              <th className="px-3 py-3 text-right">月間架電目標</th>
+              <th className="px-3 py-3 text-right">目標進捗</th>
+              <th className="px-3 py-3 text-right">目標アポ率</th>
+              <th className="px-3 py-3 text-center">判定</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m, i) => {
+              const meta = STATUS_META[m.status];
+              const lowContact = m.calls > 0 && m.contactRate < CONTACT_RATE_BENCH;
+              const apptNG = m.apptRate < m.target.apptRate;
+              return (
+                <tr
+                  key={m.name}
+                  className={`border-t border-slate-100 ${i % 2 ? 'bg-slate-50/40' : 'bg-white'}`}
+                >
+                  <td className="sticky left-0 z-10 bg-inherit px-4 py-3 font-bold">
+                    <span className="inline-flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+                      {m.name}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">{m.calls.toLocaleString()}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{m.contacts}</td>
+                  <td
+                    className={`px-3 py-3 text-right tabular-nums ${
+                      lowContact ? 'bg-amber-50 font-bold text-amber-700' : 'text-slate-600'
+                    }`}
+                  >
+                    {pct(m.contactRate)}
+                  </td>
+                  <td
+                    className={`px-3 py-3 text-right tabular-nums ${
+                      m.appts === 0 ? 'bg-rose-50 font-bold text-rose-600' : 'font-bold'
+                    }`}
+                  >
+                    {m.appts}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-slate-600">
+                    {pct(m.apptFromContact)}
+                  </td>
+                  <td
+                    className={`px-3 py-3 text-right tabular-nums ${
+                      apptNG ? 'bg-rose-50 font-bold text-rose-600' : 'font-bold text-emerald-600'
+                    }`}
+                  >
+                    {pct(m.apptRate, 2)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-slate-400">
+                    {m.target.calls.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-slate-600">
+                    {pct(m.callProgress)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-slate-400">
+                    {pct(m.target.apptRate, 1)}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${meta.chip}`}>
+                      {meta.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+
+            {/* 合計 / 平均 */}
+            <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+              <td className="sticky left-0 z-10 bg-slate-50 px-4 py-3">合計 / 平均</td>
+              <td className="px-3 py-3 text-right tabular-nums">{team.calls.toLocaleString()}</td>
+              <td className="px-3 py-3 text-right tabular-nums">{team.contacts}</td>
+              <td className="px-3 py-3 text-right tabular-nums">{pct(team.contactRate)}</td>
+              <td
+                className={`px-3 py-3 text-right tabular-nums ${
+                  team.appts === 0 ? 'text-rose-600' : ''
+                }`}
+              >
+                {team.appts}
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums">{pct(totalApptFromContact)}</td>
+              <td
+                className={`px-3 py-3 text-right tabular-nums ${
+                  team.apptRate < team.apptTarget ? 'text-rose-600' : 'text-emerald-600'
+                }`}
+              >
+                {pct(team.apptRate, 2)}
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums text-slate-500">
+                {team.targetCalls.toLocaleString()}
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums text-slate-500">
+                {pct(team.callProgress)}
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums text-slate-500">
+                {pct(team.apptTarget, 2)}
+              </td>
+              <td className="px-3 py-3 text-center text-xs text-slate-500">
+                達成 {team.achievedApptTarget}/{members.length}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-3 text-xs leading-relaxed text-slate-400">
+        ※ 架電ログ（1〜4回目の架電結果）を 架電担当者 × サービス種別 で集計。担当接触率＝担当接触数／架電件数、アポ率＝アポ数／架電件数。
+        担当接触率が {pct(CONTACT_RATE_BENCH, 0)} 未満、またはアポ率が目標未満のセルを色付け。
+      </p>
+    </section>
   );
 }
 
