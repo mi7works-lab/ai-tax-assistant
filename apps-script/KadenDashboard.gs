@@ -34,6 +34,12 @@ const CONFIG = {
   APPT_KEYWORDS: ['アポ'],        // 10「担当接触：アポ」をアポとしてカウント
 
   CONTACT_RATE_BENCH: 0.2,       // 担当接触率の基準（これ未満を黄色で警告）
+
+  // ▼ おすすめの打ち手（Next Action）判定の基準。自社水準に合わせて調整可
+  CONNECT_RATE_BENCH: 0.4,       // 通電率：これ未満なら「リスト精査・架電時間帯」
+  PASS_RATE_BENCH: 0.3,          // 受付突破率：これ未満なら「受付トーク改善」
+  CONTACT_TO_APPT_BENCH: 0.05,   // 接触→アポ率：これ未満なら「担当トーク改善」
+  VOLUME_PROGRESS_BENCH: 0.8,    // 月間架電目標の進捗：これ未満なら「架電量を上げる」（月間表示時）
 };
 
 // 目標シートの初期値（メンバー, 稼働数, 月間架電目標, 目標アポ率）
@@ -279,6 +285,10 @@ function layoutDashboard_(ss, agents, types, months) {
   const CN = "'" + CONFIG.CALC_SHEET + "'";
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
   const bench = CONFIG.CONTACT_RATE_BENCH;
+  const conn = CONFIG.CONNECT_RATE_BENCH;
+  const pass = CONFIG.PASS_RATE_BENCH;
+  const ca = CONFIG.CONTACT_TO_APPT_BENCH;
+  const vol = CONFIG.VOLUME_PROGRESS_BENCH;
 
   // 集計範囲・判定セル（_集計データの列）
   const A = CN + '!$A:$A', B = CN + '!$B:$B', Cc = CN + '!$C:$C',
@@ -296,10 +306,10 @@ function layoutDashboard_(ss, agents, types, months) {
   };
   dash.clear();
   dash.clearConditionalFormatRules();
-  dash.getRange(1, 1, dash.getMaxRows(), 14).setDataValidation(null);
+  dash.getRange(1, 1, dash.getMaxRows(), 15).setDataValidation(null);
 
   // ---- タイトル / 対象期間表示 ----
-  dash.getRange('A1:N1').merge().setValue('架電KPIダッシュボード')
+  dash.getRange('A1:O1').merge().setValue('架電KPIダッシュボード')
     .setFontSize(20).setFontWeight('bold').setVerticalAlignment('middle');
   dash.setRowHeight(1, 42);
 
@@ -350,7 +360,7 @@ function layoutDashboard_(ss, agents, types, months) {
 
   const header = ['メンバー', '架電件数', '通電数', '通電率', '担当接触数',
     '受付突破率', 'アポ数', '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗',
-    '目標アポ率', '判定', '進捗バー'];
+    '目標アポ率', '判定', '進捗バー', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
@@ -376,6 +386,15 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 14).setFormula(
       '=IF($J' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$J' + r + ';"color1","#6366f1";"empty","zero"}))'
     );
+    // おすすめの打ち手（ファネルの最弱点を1つ提示）
+    dash.getRange(r, 15).setFormula(
+      '=IF($B' + r + '=0,"架電なし",' +
+      'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"✅ 好調キープ",' +
+      'IF($D' + r + '<' + conn + ',"通電↑（リスト精査・架電時間帯）",' +
+      'IF($F' + r + '<' + pass + ',"受付突破↑（受付トーク改善）",' +
+      'IF($H' + r + '<' + ca + ',"担当トーク↑（接触後の提案改善）",' +
+      '"歩留り良好→架電量↑")))))'
+    );
   }
 
   // 合計 / 平均 行
@@ -395,8 +414,20 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 14).setFormula(
     '=IF($J' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$J' + rt + ';"color1","#4f46e5";"empty","zero"}))'
   );
-  dash.getRange(rt, 1, 1, 14).setBackground('#f8fafc').setFontWeight('bold')
+  dash.getRange(rt, 1, 1, 15).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // ---- 重点アクション（チーム全体のおすすめ打ち手）----
+  dash.getRange('A10:O10').merge();
+  dash.getRange('A10').setFormula(
+    '=LET(j,TEXTJOIN("　／　",TRUE,' +
+    'IF(AND($C$5="月間",$K$' + rt + '<' + vol + '),"①架電量を上げる（進捗"&TEXT($K$' + rt + ',"0%")&"）",""),' +
+    'IF($D$' + rt + '<' + conn + ',"通電率を上げる：リスト精査・架電時間帯の見直し（"&TEXT($D$' + rt + ',"0%")&"）",""),' +
+    'IF($F$' + rt + '<' + pass + ',"受付突破トークを改善（"&TEXT($F$' + rt + ',"0%")&"）",""),' +
+    'IF($H$' + rt + '<' + ca + ',"担当接触後のトーク・提案を改善（"&TEXT($H$' + rt + ',"0.0%")&"）","")),' +
+    '"🎯 重点アクション：　"&IF(j="","好調をキープ。架電量を積み増してアポ母数を拡大",j))'
+  ).setFontWeight('bold').setVerticalAlignment('middle').setBackground('#eef2ff').setFontColor('#3730a3');
+  dash.setRowHeight(10, 32);
 
   // ---- KPI（合計行を参照） ----
   const kpis = [
@@ -442,8 +473,9 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.setColumnWidth(1, 130);
   dash.setColumnWidths(2, 12, 88);
   dash.setColumnWidth(14, 150);
+  dash.setColumnWidth(15, 230);
   dash.setFrozenRows(HR);
-  dash.getRange(HR, 1, n + 2, 14)
+  dash.getRange(HR, 1, n + 2, 15)
     .setBorder(true, true, true, true, true, true, '#e2e8f0', SpreadsheetApp.BorderStyle.SOLID);
   dash.setHiddenGridlines(true);
   ss.setActiveSheet(dash);
