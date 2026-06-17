@@ -108,7 +108,7 @@ function collectCalls_(ss) {
     throw new Error('「' + CONFIG.RAW_SHEET_KEYWORD + '」を名前に含むシート（例：リスト（介護））が見つかりません。');
   }
 
-  const out = [['担当者', '種別', '架電日', '結果', '接触', 'アポ']];
+  const out = [['担当者', '種別', '架電日', '結果', '接触', 'アポ', '通電']];
   const agentSet = [];
   const typeSet = [];
   let maxDate = null;
@@ -142,7 +142,9 @@ function collectCalls_(ss) {
         const result = String(row[dc + 1] || '').trim();
         const contact = CONFIG.CONTACT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
         const appt = CONFIG.APPT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
-        out.push([agent, type, date, result, contact, appt]);
+        // 通電（コンタクト）= 受付対応 または 担当接触（不通・現アナ以外）
+        const connect = /受付対応|担当接触/.test(result) ? 1 : 0;
+        out.push([agent, type, date, result, contact, appt, connect]);
         if (agentSet.indexOf(agent) < 0) agentSet.push(agent);
         if (!maxDate || date > maxDate) maxDate = date;
       });
@@ -213,8 +215,8 @@ function writeCalcSheet_(ss, calls, months) {
   if (!calc) calc = ss.insertSheet(CONFIG.CALC_SHEET);
   calc.clear();
 
-  // A:F = 1架電=1行（担当者, 種別, 架電日, 結果, 接触, アポ）
-  calc.getRange(1, 1, calls.length, 6).setValues(calls);
+  // A:G = 1架電=1行（担当者, 種別, 架電日, 結果, 接触, アポ, 通電）
+  calc.getRange(1, 1, calls.length, 7).setValues(calls);
   calc.getRange(2, 3, Math.max(calls.length - 1, 1), 1).setNumberFormat('yyyy/mm/dd');
 
   // J:L = 週テーブル（キー="対象月|第N週", 開始, 終了）
@@ -278,9 +280,9 @@ function layoutDashboard_(ss, agents, types, months) {
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
   const bench = CONFIG.CONTACT_RATE_BENCH;
 
-  // 集計範囲・判定セル
+  // 集計範囲・判定セル（_集計データの列）
   const A = CN + '!$A:$A', B = CN + '!$B:$B', Cc = CN + '!$C:$C',
-    E = CN + '!$E:$E', F = CN + '!$F:$F';
+    Ec = CN + '!$E:$E', Fc = CN + '!$F:$F', Gc = CN + '!$G:$G';
   const tc = CN + '!$H$3', sd = CN + '!$H$5', ed = CN + '!$H$6';
   const dateCrit = ',' + Cc + ',">="&' + sd + ',' + Cc + ',"<="&' + ed;
 
@@ -294,10 +296,10 @@ function layoutDashboard_(ss, agents, types, months) {
   };
   dash.clear();
   dash.clearConditionalFormatRules();
-  dash.getRange(1, 1, dash.getMaxRows(), 12).setDataValidation(null);
+  dash.getRange(1, 1, dash.getMaxRows(), 14).setDataValidation(null);
 
   // ---- タイトル / 対象期間表示 ----
-  dash.getRange('A1:L1').merge().setValue('架電KPIダッシュボード')
+  dash.getRange('A1:N1').merge().setValue('架電KPIダッシュボード')
     .setFontSize(20).setFontWeight('bold').setVerticalAlignment('middle');
   dash.setRowHeight(1, 42);
 
@@ -346,29 +348,33 @@ function layoutDashboard_(ss, agents, types, months) {
   const last = HR + n;
   const rt = last + 1;          // 合計行
 
-  const header = ['メンバー', '架電件数', '担当接触数', '担当接触率', 'アポ数',
-    '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗', '目標アポ率', '判定', '進捗バー'];
+  const header = ['メンバー', '架電件数', '通電数', '通電率', '担当接触数',
+    '受付突破率', 'アポ数', '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗',
+    '目標アポ率', '判定', '進捗バー'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
   for (let i = 0; i < n; i++) {
     const r = first + i;
+    // 列: B架電 C通電数 D通電率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
+    //     I アポ率 J月間架電目標 K目標進捗 L目標アポ率 M判定 N進捗バー
     dash.getRange(r, 1).setValue(agents[i]);
     dash.getRange(r, 2).setFormula('=COUNTIFS(' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
-    dash.getRange(r, 3).setFormula('=SUMIFS(' + E + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 3).setFormula('=SUMIFS(' + Gc + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
     dash.getRange(r, 4).setFormula('=IF($B' + r + '=0,0,$C' + r + '/$B' + r + ')');
-    dash.getRange(r, 5).setFormula('=SUMIFS(' + F + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 5).setFormula('=SUMIFS(' + Ec + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
     dash.getRange(r, 6).setFormula('=IF($C' + r + '=0,0,$E' + r + '/$C' + r + ')');
-    dash.getRange(r, 7).setFormula('=IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')');
-    dash.getRange(r, 8).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
-    dash.getRange(r, 9).setFormula('=IF($H' + r + '="","",$B' + r + '/$H' + r + ')');
-    dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
-    dash.getRange(r, 11).setFormula(
-      '=IF($E' + r + '=0,"未達",IF(AND($G' + r + '>=$J' + r + ',$D' + r + '>=' + bench + '),"達成","要注意"))'
+    dash.getRange(r, 7).setFormula('=SUMIFS(' + Fc + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 8).setFormula('=IF($E' + r + '=0,0,$G' + r + '/$E' + r + ')');
+    dash.getRange(r, 9).setFormula('=IF($B' + r + '=0,0,$G' + r + '/$B' + r + ')');
+    dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
+    dash.getRange(r, 11).setFormula('=IF($J' + r + '="","",$B' + r + '/$J' + r + ')');
+    dash.getRange(r, 12).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
+    dash.getRange(r, 13).setFormula(
+      '=IF($G' + r + '=0,"未達",IF(AND($I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"達成","要注意"))'
     );
-    // 進捗バー（架電件数 / 月間架電目標）
-    dash.getRange(r, 12).setFormula(
-      '=IF($H' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$H' + r + ';"color1","#6366f1";"empty","zero"}))'
+    dash.getRange(r, 14).setFormula(
+      '=IF($J' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$J' + r + ';"color1","#6366f1";"empty","zero"}))'
     );
   }
 
@@ -379,20 +385,26 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 4).setFormula('=IF($B' + rt + '=0,0,$C' + rt + '/$B' + rt + ')');
   dash.getRange(rt, 5).setFormula('=SUM(E' + first + ':E' + last + ')');
   dash.getRange(rt, 6).setFormula('=IF($C' + rt + '=0,0,$E' + rt + '/$C' + rt + ')');
-  dash.getRange(rt, 7).setFormula('=IF($B' + rt + '=0,0,$E' + rt + '/$B' + rt + ')');
-  dash.getRange(rt, 8).setFormula('=SUM(H' + first + ':H' + last + ')');
-  dash.getRange(rt, 9).setFormula('=IF($H' + rt + '=0,"",$B' + rt + '/$H' + rt + ')');
-  dash.getRange(rt, 10).setFormula('=IFERROR(SUMPRODUCT(H' + first + ':H' + last + ',J' + first + ':J' + last + ')/$H' + rt + ',0)');
-  dash.getRange(rt, 11).setFormula('=COUNTIF(K' + first + ':K' + last + ',"達成")&" / ' + n + '名 達成"');
-  dash.getRange(rt, 12).setFormula(
-    '=IF($H' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$H' + rt + ';"color1","#4f46e5";"empty","zero"}))'
+  dash.getRange(rt, 7).setFormula('=SUM(G' + first + ':G' + last + ')');
+  dash.getRange(rt, 8).setFormula('=IF($E' + rt + '=0,0,$G' + rt + '/$E' + rt + ')');
+  dash.getRange(rt, 9).setFormula('=IF($B' + rt + '=0,0,$G' + rt + '/$B' + rt + ')');
+  dash.getRange(rt, 10).setFormula('=SUM(J' + first + ':J' + last + ')');
+  dash.getRange(rt, 11).setFormula('=IF($J' + rt + '=0,"",$B' + rt + '/$J' + rt + ')');
+  dash.getRange(rt, 12).setFormula('=IFERROR(SUMPRODUCT(J' + first + ':J' + last + ',L' + first + ':L' + last + ')/$J' + rt + ',0)');
+  dash.getRange(rt, 13).setFormula('=COUNTIF(M' + first + ':M' + last + ',"達成")&" / ' + n + '名 達成"');
+  dash.getRange(rt, 14).setFormula(
+    '=IF($J' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$J' + rt + ';"color1","#4f46e5";"empty","zero"}))'
   );
-  dash.getRange(rt, 1, 1, 12).setBackground('#f8fafc').setFontWeight('bold')
+  dash.getRange(rt, 1, 1, 14).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // ---- KPI（合計行を参照） ----
-  const kpis = [['総架電数', '=B' + rt, '#'], ['担当接触率', '=D' + rt, '%1'],
-    ['総アポ数', '=E' + rt, '#'], ['平均アポ率', '=G' + rt, '%2']];
+  const kpis = [
+    ['総架電数', '=B' + rt, '#'],
+    ['通電率', '=D' + rt, '%1'],
+    ['担当接触率', '=IF(B' + rt + '=0,0,E' + rt + '/B' + rt + ')', '%1'],
+    ['平均アポ率', '=I' + rt, '%2'],
+  ];
   kpis.forEach((k, i) => {
     const c = 1 + i * 3;
     dash.getRange(8, c).setValue(k[0]).setFontColor('#64748b').setFontWeight('bold');
@@ -403,41 +415,35 @@ function layoutDashboard_(ss, agents, types, months) {
   });
 
   // ---- 数値書式 ----
-  dash.getRange(first, 2, n + 1, 1).setNumberFormat('#,##0');
-  dash.getRange(first, 3, n + 1, 1).setNumberFormat('#,##0');
-  dash.getRange(first, 5, n + 1, 1).setNumberFormat('#,##0');
-  dash.getRange(first, 8, n + 1, 1).setNumberFormat('#,##0');
-  dash.getRange(first, 4, n + 1, 1).setNumberFormat('0.0%');
-  dash.getRange(first, 6, n + 1, 1).setNumberFormat('0.0%');
-  dash.getRange(first, 7, n + 1, 1).setNumberFormat('0.00%');
-  dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.0%');
-  dash.getRange(first, 10, n + 1, 1).setNumberFormat('0.0%');
+  [2, 3, 5, 7, 10].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('#,##0'));
+  [4, 6, 8, 11, 12].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
+  dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.00%'); // アポ率
 
   // ---- 条件付き書式（未達=NA） ----
   const rules = [];
-  rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=$E' + first + '=0')
-    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([dash.getRange(first, 5, n, 1)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=$G' + first + '<$J' + first)
+  rules.push(SpreadsheetApp.newConditionalFormatRule() // アポ数=0
+    .whenFormulaSatisfied('=$G' + first + '=0')
     .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([dash.getRange(first, 7, n, 1)]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=$D' + first + '<' + bench)
-    .setBackground('#fffbeb').setFontColor('#b45309').setRanges([dash.getRange(first, 4, n, 1)]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule() // アポ率<目標
+    .whenFormulaSatisfied('=$I' + first + '<$L' + first)
+    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([dash.getRange(first, 9, n, 1)]).build());
+  rules.push(SpreadsheetApp.newConditionalFormatRule() // 接触→アポ率が低い（要改善の本丸）
+    .whenFormulaSatisfied('=AND($E' + first + '>0,$H' + first + '<0.05)')
+    .setBackground('#fffbeb').setFontColor('#b45309').setRanges([dash.getRange(first, 8, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('未達')
-    .setBackground('#fff1f2').setFontColor('#be123c').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
+    .setBackground('#fff1f2').setFontColor('#be123c').setBold(true).setRanges([dash.getRange(first, 13, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('達成')
-    .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
+    .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 13, n, 1)]).build());
   dash.setConditionalFormatRules(rules);
 
   // ---- 体裁 ----
   dash.setColumnWidth(1, 130);
-  dash.setColumnWidths(2, 10, 92);
-  dash.setColumnWidth(12, 150);
+  dash.setColumnWidths(2, 12, 88);
+  dash.setColumnWidth(14, 150);
   dash.setFrozenRows(HR);
-  dash.getRange(HR, 1, n + 2, 12)
+  dash.getRange(HR, 1, n + 2, 14)
     .setBorder(true, true, true, true, true, true, '#e2e8f0', SpreadsheetApp.BorderStyle.SOLID);
   dash.setHiddenGridlines(true);
   ss.setActiveSheet(dash);
