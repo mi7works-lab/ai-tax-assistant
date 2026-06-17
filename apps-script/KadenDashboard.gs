@@ -578,11 +578,13 @@ function layoutDashboard_(ss, agents, types, months) {
     .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 13, n, 1)]).build());
   dash.setConditionalFormatRules(rules);
 
-  // ---- 体裁 ----
-  dash.setColumnWidth(1, 130);
-  dash.setColumnWidths(2, 12, 88);
-  dash.setColumnWidth(14, 150);
-  dash.setColumnWidth(15, 230);
+  // ---- 体裁（1画面に収まるよう列幅を圧縮＋ヘッダー折り返し）----
+  dash.setColumnWidth(1, 84);          // メンバー
+  dash.setColumnWidths(2, 12, 68);     // 架電件数〜目標アポ率
+  dash.setColumnWidth(14, 80);         // 進捗バー
+  dash.setColumnWidth(15, 150);        // おすすめの打ち手（右が空欄なら溢れて表示）
+  dash.getRange(HR, 1, 1, 15).setWrap(true).setVerticalAlignment('middle'); // ヘッダーは折り返し
+  dash.getRange(first, 1, n + 1, 15).setFontSize(10);
   dash.setFrozenRows(HR);
   dash.getRange(HR, 1, n + 2, 15)
     .setBorder(true, true, true, true, true, true, '#e2e8f0', SpreadsheetApp.BorderStyle.SOLID);
