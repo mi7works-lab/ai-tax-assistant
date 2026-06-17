@@ -405,20 +405,6 @@ function layoutDashboard_(ss, agents, types, months) {
     if (k[2] === '%2') v.setNumberFormat('0.00%');
   });
 
-  // ---- アラート（目標未達の自動サマリー） ----
-  const benchPct = Math.round(bench * 100);
-  const Kr = 'K' + first + ':K' + last;
-  const Er = 'E' + first + ':E' + last;
-  const Dr = 'D' + first + ':D' + last;
-  const Br = 'B' + first + ':B' + last;
-  dash.getRange('A10:L10').merge();
-  dash.getRange('A10').setFormula(
-    '="⚠ 未達 "&COUNTIF(' + Kr + ',"未達")&"名　｜　アポ0 "&COUNTIF(' + Er + ',0)' +
-    '&"名　｜　接触率<' + benchPct + '% "&COUNTIFS(' + Dr + ',"<' + bench + '",' + Br + ',">0")' +
-    '&"名　　　✅ 目標達成 "&COUNTIF(' + Kr + ',"達成")&" / ' + n + '名"'
-  ).setFontWeight('bold').setVerticalAlignment('middle');
-  dash.setRowHeight(10, 30);
-
   // ---- 数値書式 ----
   dash.getRange(first, 2, n + 1, 1).setNumberFormat('#,##0');
   dash.getRange(first, 3, n + 1, 1).setNumberFormat('#,##0');
@@ -447,13 +433,6 @@ function layoutDashboard_(ss, agents, types, months) {
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('達成')
     .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
-  // アラート行：未達がある=赤 / 全員達成=緑
-  rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=COUNTIF($K$' + first + ':$K$' + last + ',"未達")>0')
-    .setBackground('#fff1f2').setFontColor('#be123c').setRanges([dash.getRange('A10:L10')]).build());
-  rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=COUNTIF($K$' + first + ':$K$' + last + ',"未達")=0')
-    .setBackground('#ecfdf5').setFontColor('#047857').setRanges([dash.getRange('A10:L10')]).build());
   dash.setConditionalFormatRules(rules);
 
   // ---- 体裁 ----
