@@ -482,7 +482,7 @@ function layoutDashboard_(ss, agents, types, months) {
     'アポ数 ÷ 担当接触数。担当者と話せたうちアポになった割合（担当クロージング力）',
     'アポ数 ÷ 架電件数。全架電に対するアポ獲得率',
     '目標シートの「月間架電目標」',
-    'ゲージ＝架電件数÷架電目標。█の数と%で進捗を表示',
+    '架電件数 ÷ 架電目標。背景の色が濃いほど進捗が高い',
     '目標シートの「目標アポ率」',
     'アポ率が目標以上かつ担当接触率20%以上で「達成」／アポ0で「未達」／その他「要注意」',
     'ファネルの最弱点に応じた次の一手（効く順に1つ提示）',
@@ -503,10 +503,8 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 8).setFormula('=IF($E' + r + '=0,0,$G' + r + '/$E' + r + ')');
     dash.getRange(r, 9).setFormula('=IF($B' + r + '=0,0,$G' + r + '/$B' + r + ')');
     dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
-    // 目標進捗＝% ＋ ゲージ(█/░) を1セルに（%を先頭にして必ず見える／目標未設定は空欄）
-    dash.getRange(r, 11).setFormula(
-      '=IF($J' + r + '="","",TEXT($B' + r + '/$J' + r + ',"0.0%")&" "&REPT("█",ROUND(MIN($B' + r + '/$J' + r + ',1)*10))&REPT("░",10-ROUND(MIN($B' + r + '/$J' + r + ',1)*10)))'
-    );
+    // 目標進捗＝%（背景の色の濃淡で進捗を表現。目標未設定は空欄）
+    dash.getRange(r, 11).setFormula('=IF($J' + r + '="","",$B' + r + '/$J' + r + ')');
     dash.getRange(r, 12).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
     dash.getRange(r, 13).setFormula(
       '=IF($G' + r + '=0,"未達",IF(AND($I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"達成","要注意"))'
@@ -533,9 +531,7 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 8).setFormula('=IF($E' + rt + '=0,0,$G' + rt + '/$E' + rt + ')');
   dash.getRange(rt, 9).setFormula('=IF($B' + rt + '=0,0,$G' + rt + '/$B' + rt + ')');
   dash.getRange(rt, 10).setFormula('=SUM(J' + first + ':J' + last + ')');
-  dash.getRange(rt, 11).setFormula(
-    '=IF($J' + rt + '=0,"",TEXT($B' + rt + '/$J' + rt + ',"0.0%")&" "&REPT("█",ROUND(MIN($B' + rt + '/$J' + rt + ',1)*10))&REPT("░",10-ROUND(MIN($B' + rt + '/$J' + rt + ',1)*10)))'
-  );
+  dash.getRange(rt, 11).setFormula('=IF($J' + rt + '=0,"",$B' + rt + '/$J' + rt + ')');
   dash.getRange(rt, 12).setFormula('=IFERROR(SUMPRODUCT(J' + first + ':J' + last + ',L' + first + ':L' + last + ')/$J' + rt + ',0)');
   dash.getRange(rt, 13).setFormula('=COUNTIF(M' + first + ':M' + last + ',"達成")&" / ' + n + '名 達成"');
   dash.getRange(rt, 1, 1, 14).setBackground('#f8fafc').setFontWeight('bold')
@@ -559,9 +555,8 @@ function layoutDashboard_(ss, agents, types, months) {
 
   // ---- 数値書式 ----
   [2, 3, 5, 7, 10].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('#,##0'));
-  [4, 6, 8, 12].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
+  [4, 6, 8, 11, 12].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
   dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.00%'); // アポ率
-  dash.getRange(first, 11, n + 1, 1).setFontFamily('Roboto Mono').setFontSize(10); // ゲージは等幅で揃える
 
   // ---- 条件付き書式（未達=NA） ----
   const rules = [];
@@ -580,13 +575,17 @@ function layoutDashboard_(ss, agents, types, months) {
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('達成')
     .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 13, n, 1)]).build());
+  // 目標進捗：値の濃淡で進捗を表現（最小=白〜最大=インディゴ。範囲内で自動スケール）
+  rules.push(SpreadsheetApp.newConditionalFormatRule()
+    .setGradientMinpoint('#ffffff')
+    .setGradientMaxpoint('#a5b4fc')
+    .setRanges([dash.getRange(first, 11, n, 1)]).build());
   dash.setConditionalFormatRules(rules);
 
   // ---- 体裁（1画面に収める＋ヘッダーを整える）----
   dash.setColumnWidth(1, 84);          // メンバー
-  dash.setColumnWidths(2, 12, 76);     // 架電件数〜目標アポ率
-  dash.setColumnWidth(11, 150);        // 目標進捗（% ＋ ゲージ）
-  dash.setColumnWidth(14, 160);        // おすすめの打ち手（右が空欄なら溢れて表示）
+  dash.setColumnWidths(2, 12, 76);     // 架電件数〜目標アポ率（目標進捗含む）
+  dash.setColumnWidth(14, 190);        // おすすめの打ち手（右が空欄なら溢れて表示）
   dash.getRange(HR, 1, 1, 14)
     .setWrap(true).setVerticalAlignment('middle').setHorizontalAlignment('center'); // ヘッダー折り返し＋中央
   dash.setRowHeight(HR, 34);
