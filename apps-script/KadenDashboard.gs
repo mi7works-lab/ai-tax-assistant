@@ -465,7 +465,7 @@ function layoutDashboard_(ss, agents, types, months) {
   const rt = last + 1;          // 合計行
 
   const header = ['メンバー', '架電件数', '接触数', '接触率', '担当接触数',
-    '受付突破率', 'アポ数', 'アポ転換率', 'アポ率', '架電目標', '進捗バー', '進捗%',
+    '受付突破率', 'アポ数', 'アポ転換率', 'アポ率', '架電目標', '目標進捗', '',
     '目標アポ率', '判定', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
@@ -482,13 +482,14 @@ function layoutDashboard_(ss, agents, types, months) {
     'アポ数 ÷ 担当接触数。担当者と話せたうちアポになった割合（担当クロージング力）',
     'アポ数 ÷ 架電件数。全架電に対するアポ獲得率',
     '目標シートの「月間架電目標」',
-    '架電件数 ÷ 架電目標 の到達度バー',
-    '架電件数 ÷ 架電目標',
+    '架電件数 ÷ 架電目標。左＝ゲージ、右＝%',
+    '',
     '目標シートの「目標アポ率」',
     'アポ率が目標以上かつ担当接触率20%以上で「達成」／アポ0で「未達」／その他「要注意」',
     'ファネルの最弱点に応じた次の一手（効く順に1つ提示）',
   ];
   notes.forEach((note, i) => dash.getRange(HR, i + 1).setNote(note));
+  dash.getRange(HR, 11, 1, 2).merge(); // 「目標進捗」ヘッダーを2列ぶん結合
 
   for (let i = 0; i < n; i++) {
     const r = first + i;
@@ -504,9 +505,9 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 8).setFormula('=IF($E' + r + '=0,0,$G' + r + '/$E' + r + ')');
     dash.getRange(r, 9).setFormula('=IF($B' + r + '=0,0,$G' + r + '/$B' + r + ')');
     dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
-    // 進捗バー（左）＝架電件数÷架電目標 の SPARKLINE、進捗%（右）＝数値。目標未設定は空欄
+    // 目標進捗：ゲージ(█/░, 左)＝架電件数÷架電目標、%（右）＝数値。目標未設定は空欄
     dash.getRange(r, 11).setFormula(
-      '=IF($J' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$J' + r + ';"color1","#6366f1";"empty","zero"}))'
+      '=IF($J' + r + '="","",REPT("█",ROUND(MIN($B' + r + '/$J' + r + ',1)*10))&REPT("░",10-ROUND(MIN($B' + r + '/$J' + r + ',1)*10)))'
     );
     dash.getRange(r, 12).setFormula('=IF($J' + r + '="","",$B' + r + '/$J' + r + ')');
     dash.getRange(r, 13).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
@@ -536,7 +537,7 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 9).setFormula('=IF($B' + rt + '=0,0,$G' + rt + '/$B' + rt + ')');
   dash.getRange(rt, 10).setFormula('=SUM(J' + first + ':J' + last + ')');
   dash.getRange(rt, 11).setFormula(
-    '=IF($J' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$J' + rt + ';"color1","#4f46e5";"empty","zero"}))'
+    '=IF($J' + rt + '=0,"",REPT("█",ROUND(MIN($B' + rt + '/$J' + rt + ',1)*10))&REPT("░",10-ROUND(MIN($B' + rt + '/$J' + rt + ',1)*10)))'
   );
   dash.getRange(rt, 12).setFormula('=IF($J' + rt + '=0,"",$B' + rt + '/$J' + rt + ')');
   dash.getRange(rt, 13).setFormula('=IFERROR(SUMPRODUCT(J' + first + ':J' + last + ',M' + first + ':M' + last + ')/$J' + rt + ',0)');
@@ -564,6 +565,8 @@ function layoutDashboard_(ss, agents, types, months) {
   [2, 3, 5, 7, 10].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('#,##0'));
   [4, 6, 8, 12, 13].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
   dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.00%'); // アポ率
+  // ゲージ列は等幅＋インディゴで█を「バー」っぽく
+  dash.getRange(first, 11, n + 1, 1).setFontFamily('Roboto Mono').setFontColor('#6366f1').setFontSize(10);
 
   // ---- 条件付き書式（未達=NA） ----
   const rules = [];
