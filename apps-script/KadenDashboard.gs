@@ -179,8 +179,9 @@ function toDate_(v) {
 function generateWeeks_(anyDateInMonth) {
   const y = anyDateInMonth.getFullYear();
   const m = anyDateInMonth.getMonth();
-  const monthStart = new Date(y, m, 1);
-  const monthEnd = new Date(y, m + 1, 0);
+  // 正午基準にしてタイムゾーンによる日付ズレ（月初が前日になる等）を防ぐ
+  const monthStart = new Date(y, m, 1, 12);
+  const monthEnd = new Date(y, m + 1, 0, 12);
   const weeks = [];
   let ws = new Date(monthStart);
   let n = 1;
@@ -489,75 +490,65 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.setHiddenGridlines(true);
 
   // ===== 下部：達成ペース（期間モード連動）＆ メンバー別構成比 =====
+  // 日次の元データは隠しシート(_集計データ)の R:X 列に作成し、画面には出さない。
+  const calc = ss.getSheetByName(CONFIG.CALC_SHEET);
+  const DAYS = 45;        // 月間=最大31。任意期間が長い場合は先頭45日
+  const TC = 18;          // R列スタート（18列目）
+  calc.getRange(1, TC, DAYS + 1, 7).clearContent();
+  calc.getRange(1, TC, 1, 7).setValues([['日付', '当日架電', '累積架電', '架電ペース', '当日アポ', '累積アポ', 'アポペース']]);
+  const dCallTgt = '(SUM(' + GN + '!$C$2:$C$200)/DAY($H$2))';
+  const dApptTgt = '(SUMPRODUCT(' + GN + '!$C$2:$C$200,' + GN + '!$D$2:$D$200)/DAY($H$2))';
+  const drows = [];
+  for (let i = 1; i <= DAYS; i++) {
+    const r = i + 1; // 隠しシート上の行（ヘッダー=1行目）
+    drows.push([
+      '=IF(INT($H$5)+' + (i - 1) + '>INT($H$6),"",INT($H$5)+' + (i - 1) + ')',
+      '=IF($R' + r + '="","",COUNTIFS($C:$C,">="&$R' + r + ',$C:$C,"<"&$R' + r + '+1,$B:$B,$H$3))',
+      '=IF($R' + r + '="","",SUM($S$2:$S' + r + '))',
+      '=IF($R' + r + '="","",' + dCallTgt + '*' + i + ')',
+      '=IF($R' + r + '="","",SUMIFS($F:$F,$C:$C,">="&$R' + r + ',$C:$C,"<"&$R' + r + '+1,$B:$B,$H$3))',
+      '=IF($R' + r + '="","",SUM($V$2:$V' + r + '))',
+      '=IF($R' + r + '="","",' + dApptTgt + '*' + i + ')',
+    ]);
+  }
+  calc.getRange(2, TC, DAYS, 7).setFormulas(drows);
+  calc.getRange(2, TC, DAYS, 1).setNumberFormat('m/d');
+
   const base = rt + 3;
   dash.getRange(base, 1).setValue('達成ペース（選択期間内の累積実績 vs 目標ペース）')
     .setFontWeight('bold').setFontSize(12);
-  const dh = base + 1;     // 日次ヘッダー行
-  const ds = dh + 1;       // 日次データ開始行
-  const DAYS = 45;         // 表示できる最大日数（月間=最大31。任意期間が長い場合は先頭45日）
-  dash.getRange(dh, 1, 1, 7).setValues([['日付', '当日架電', '累積架電', '架電ペース', '当日アポ', '累積アポ', 'アポペース']])
-    .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
+  const dom = calc.getRange(1, TC, DAYS + 1, 1);        // 日付（ドメイン）
 
-  // 1日あたり目標（チーム全体の月間目標 ÷ 月の日数）
-  const dCallTgt = '(SUM(' + GN + '!$C$2:$C$200)/DAY(' + CN + '!$H$2))';
-  const dApptTgt = '(SUMPRODUCT(' + GN + '!$C$2:$C$200,' + GN + '!$D$2:$D$200)/DAY(' + CN + '!$H$2))';
-  const drows = [];
-  for (let i = 1; i <= DAYS; i++) {
-    const r = ds + i - 1;
-    drows.push([
-      '=IF(' + CN + '!$H$5+' + (i - 1) + '>' + CN + '!$H$6,"",' + CN + '!$H$5+' + (i - 1) + ')',
-      '=IF($A' + r + '="","",COUNTIFS(' + CN + '!$C:$C,$A' + r + ',' + CN + '!$B:$B,' + CN + '!$H$3))',
-      '=IF($A' + r + '="","",SUM($B$' + ds + ':$B' + r + '))',
-      '=IF($A' + r + '="","",' + dCallTgt + '*' + i + ')',
-      '=IF($A' + r + '="","",SUMIFS(' + CN + '!$F:$F,' + CN + '!$C:$C,$A' + r + ',' + CN + '!$B:$B,' + CN + '!$H$3))',
-      '=IF($A' + r + '="","",SUM($E$' + ds + ':$E' + r + '))',
-      '=IF($A' + r + '="","",' + dApptTgt + '*' + i + ')',
-    ]);
-  }
-  dash.getRange(ds, 1, DAYS, 7).setFormulas(drows);
-  dash.getRange(ds, 1, DAYS, 1).setNumberFormat('m/d');
-  dash.getRange(ds, 2, DAYS, 2).setNumberFormat('#,##0');
-  dash.getRange(ds, 4, DAYS, 1).setNumberFormat('#,##0.0');
-  dash.getRange(ds, 5, DAYS, 2).setNumberFormat('#,##0');
-  dash.getRange(ds, 7, DAYS, 1).setNumberFormat('#,##0.0');
-  const dEnd = ds + DAYS - 1;
-
-  // 架電バーンアップ
+  // 架電バーンアップ（累積架電 + 架電ペース）
   dash.insertChart(dash.newChart().asLineChart()
-    .addRange(dash.getRange(dh, 1, DAYS + 1, 1))
-    .addRange(dash.getRange(dh, 3, DAYS + 1, 2))
+    .addRange(dom).addRange(calc.getRange(1, TC + 2, DAYS + 1, 2))
     .setOption('title', '架電：累積実績 vs 目標ペース')
     .setOption('legend', { position: 'bottom' })
     .setOption('colors', ['#6366f1', '#cbd5e1'])
     .setOption('width', 520).setOption('height', 280)
-    .setPosition(base, 9, 0, 0).build());
-  // アポバーンアップ
+    .setPosition(base + 1, 1, 0, 0).build());
+  // アポバーンアップ（累積アポ + アポペース）
   dash.insertChart(dash.newChart().asLineChart()
-    .addRange(dash.getRange(dh, 1, DAYS + 1, 1))
-    .addRange(dash.getRange(dh, 6, DAYS + 1, 2))
+    .addRange(dom).addRange(calc.getRange(1, TC + 5, DAYS + 1, 2))
     .setOption('title', 'アポ：累積実績 vs 目標ペース')
     .setOption('legend', { position: 'bottom' })
     .setOption('colors', ['#10b981', '#cbd5e1'])
     .setOption('width', 520).setOption('height', 280)
-    .setPosition(base + 15, 9, 0, 0).build());
+    .setPosition(base + 1, 9, 0, 0).build());
   // アポ数の構成比（メンバー別）
   dash.insertChart(dash.newChart().asPieChart()
-    .addRange(dash.getRange(first, 1, n, 1))   // メンバー名
-    .addRange(dash.getRange(first, 7, n, 1))   // アポ数
+    .addRange(dash.getRange(first, 1, n, 1)).addRange(dash.getRange(first, 7, n, 1))
     .setOption('title', 'アポ数の構成比（メンバー別）')
-    .setOption('pieHole', 0.4)
-    .setOption('width', 430).setOption('height', 280)
-    .setPosition(base + 30, 9, 0, 0).build());
+    .setOption('pieHole', 0.4).setOption('width', 430).setOption('height', 280)
+    .setPosition(base + 17, 1, 0, 0).build());
   // 架電数の構成比（メンバー別）
   dash.insertChart(dash.newChart().asPieChart()
-    .addRange(dash.getRange(first, 1, n, 1))   // メンバー名
-    .addRange(dash.getRange(first, 2, n, 1))   // 架電件数
+    .addRange(dash.getRange(first, 1, n, 1)).addRange(dash.getRange(first, 2, n, 1))
     .setOption('title', '架電数の構成比（メンバー別）')
-    .setOption('pieHole', 0.4)
-    .setOption('width', 430).setOption('height', 280)
-    .setPosition(base + 30, 16, 0, 0).build());
+    .setOption('pieHole', 0.4).setOption('width', 430).setOption('height', 280)
+    .setPosition(base + 17, 9, 0, 0).build());
 
-  dash.getRange(dEnd + 2, 1).setValue(
+  dash.getRange(base + 33, 1).setValue(
     '※ 達成ペース・構成比は 種別／対象月／期間モード のプルダウンに連動。目標ペースは暦日ベースの直線（チーム全体の月間目標）。'
   ).setFontColor('#94a3b8');
 
