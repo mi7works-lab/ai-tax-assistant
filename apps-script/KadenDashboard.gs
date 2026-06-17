@@ -465,7 +465,7 @@ function layoutDashboard_(ss, agents, types, months) {
   const rt = last + 1;          // 合計行
 
   const header = ['メンバー', '架電件数', '接触数', '接触率', '担当接触数',
-    '受付突破率', 'アポ数', '接触→アポ率', 'アポ率', '月間架電目標', '目標進捗',
+    '受付突破率', 'アポ数', 'アポ転換率', 'アポ率', '架電目標', '目標進捗',
     '目標アポ率', '判定', '進捗バー', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
