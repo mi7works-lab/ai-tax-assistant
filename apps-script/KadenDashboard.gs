@@ -56,20 +56,19 @@ function onOpen() {
     .createMenu('架電ダッシュボード')
     .addItem('① 集計を更新 / 再構築', 'buildDashboard')
     .addSeparator()
-    .addItem('② 自動更新を設定（毎日 6:00 / 20:00）', 'installAutoUpdate')
+    .addItem('② 自動更新を設定（毎日 20:00）', 'installAutoUpdate')
     .addItem('自動更新を解除', 'removeAutoUpdate')
     .addSeparator()
     .addItem('目標シートを初期化', 'resetGoalSheet')
     .addToUi();
 }
 
-/** 毎日 6時台・20時台に自動で集計更新するトリガーを設定 */
+/** 毎日 20時台に自動で集計更新するトリガーを設定 */
 function installAutoUpdate() {
   removeAutoUpdate_();
-  ScriptApp.newTrigger('buildDashboard').timeBased().atHour(6).everyDays(1).create();
   ScriptApp.newTrigger('buildDashboard').timeBased().atHour(20).everyDays(1).create();
   SpreadsheetApp.getUi().alert(
-    '自動更新を設定しました。\n毎日 6時台 と 20時台 に集計を更新します。\n' +
+    '自動更新を設定しました。\n毎日 20時台 に集計を更新します。\n' +
     '※実行時刻はApps Scriptプロジェクトのタイムゾーン設定（プロジェクト設定で Asia/Tokyo に）に従います。'
   );
 }
