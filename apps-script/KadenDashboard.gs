@@ -96,17 +96,33 @@ function buildDashboard(e) {
   writeCalcSheet_(ss, calls, months);
   const goal = ensureGoalSheet_(ss);
   ensureRulesTable_(goal);
+  // 表示メンバー＝目標シートのメンバー（順序優先）＋ ログの架電担当者 の和集合
+  const members = unionMembers_(goal, agents);
   // 旧：別シート版の達成ペースがあれば撤去（ダッシュボードに統合したため）
   const oldTrend = ss.getSheetByName(CONFIG.TREND_SHEET);
   if (oldTrend) ss.deleteSheet(oldTrend);
-  layoutDashboard_(ss, agents, types, months);
+  layoutDashboard_(ss, members, types, months);
   if (!e) {
     SpreadsheetApp.getUi().alert(
       '集計を更新しました。\n' +
-      'メンバー: ' + agents.length + '名 ／ 架電: ' + (calls.length - 1) + '件\n' +
+      'メンバー: ' + members.length + '名 ／ 架電: ' + (calls.length - 1) + '件\n' +
       '対象月: ' + months.map(m => m.label).join('、 ')
     );
   }
+}
+
+/** 表示メンバーを決定：目標シートの名前（順序）＋ログの架電担当者 の和集合 */
+function unionMembers_(goal, agents) {
+  const names = [];
+  const last = goal.getLastRow();
+  if (last >= 2) {
+    goal.getRange(2, 1, last - 1, 1).getValues().forEach(row => {
+      const v = String(row[0] || '').trim();
+      if (v && names.indexOf(v) < 0) names.push(v);
+    });
+  }
+  agents.forEach(a => { if (names.indexOf(a) < 0) names.push(a); });
+  return names;
 }
 
 /** データに含まれる月を抽出し、各月の週区分を生成（昇順） */
@@ -334,13 +350,16 @@ function ensureRulesTable_(g) {
   // 編集ガイド（使い手向けの説明）
   const guide = [
     ['【このシートの編集ガイド】'],
-    ['◎ 編集すると反映される'],
-    ['　・左の表 A〜D列（メンバー／稼働数／月間架電目標／目標アポ率）… 集計・判定・達成ペースに反映'],
-    ['　・ルール表 H列（閾値）… 受付突破率・接触→アポ率の判定ライン。ダッシュボードに即反映'],
-    ['　・ルール表 I列（打ち手）… 表示される打ち手の文言。ダッシュボードに即反映'],
+    ['◎ 編集すると反映される（メニュー「① 集計を更新」実行後）'],
+    ['　・A列 メンバー … ここに追加した人はダッシュボードに表示されます（ログに架電担当者として出る人も自動で表示）'],
+    ['　・B〜D列 稼働数／月間架電目標／目標アポ率 … 集計・判定・達成ペースに反映'],
+    ['　・ルール表 H列（閾値）… 受付突破率・接触→アポ率の判定ライン。即反映'],
+    ['　・ルール表 I列（打ち手）… 表示される打ち手の文言。即反映'],
     ['× 編集しても反映されない（説明用ラベル）'],
     ['　・ルール表 F列（優先）／ G列（条件）… 判定の指標・順序はプログラム側に固定'],
-    ['メモ：メンバーを増やすときは左の表に行を追加 →メニュー「架電ダッシュボード > ① 集計を更新」を実行。'],
+    ['⚠ 重要：A列メンバー名は、各タブ（リスト）の「架電担当者」の表記と完全一致させてください。'],
+    ['　　　一致しないと、実績が0で出たり、同じ人が別名で二重表示されます（例：よしき と ヨシキ）。'],
+    ['メモ：メンバーや目標を変えたら メニュー「架電ダッシュボード > ① 集計を更新」を実行。'],
     ['　　　種別／対象月／期間モードの切替は自動で再計算されます（再実行不要）。'],
   ];
   const gStart = 10;
