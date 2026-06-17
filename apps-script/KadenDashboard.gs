@@ -23,9 +23,10 @@ const CONFIG = {
   DASH_SHEET: 'ダッシュボード',
   CALC_SHEET: '_集計データ',     // 隠しシート（自動生成）
   GOAL_SHEET: '目標',
-  RAW_SHEET: '',                 // 空なら「架電担当者」列を含むシートを自動検出
+  // 種別ごとの生ログタブ。名前にこの語を含むシートを対象にし、
+  // タブ名の（ ）内を「種別」として扱う（例：「リスト（介護）」→ 種別「介護」）
+  RAW_SHEET_KEYWORD: 'リスト',
   AGENT_HEADER: '架電担当者',
-  TYPE_HEADER: 'サービス種別',    // 部分一致（「サービス種別一覧」にヒット）
 
   // 架電結果の分類（部分一致でカウント）
   //  選択肢例: 1_不通 / 2_現アナ / 3〜6_受付対応：… / 7〜10_担当接触：…（10=アポ）
@@ -69,50 +70,53 @@ function buildDashboard() {
   );
 }
 
-/** 生ログを 1架電=1行 に展開して集計用の配列を作る */
+/** 種別ごとの生ログタブを全て走査し、1架電=1行 に展開して集計用配列を作る */
 function collectCalls_(ss) {
-  const raw = findRawSheet_(ss);
-  const values = raw.getDataRange().getValues();
-
-  // ヘッダー行を探す（先頭10行以内で「架電担当者」を含む行）
-  let hr = -1;
-  for (let i = 0; i < Math.min(values.length, 10); i++) {
-    if (values[i].some(c => String(c).trim() === CONFIG.AGENT_HEADER)) { hr = i; break; }
+  const sheets = findRawSheets_(ss);
+  if (sheets.length === 0) {
+    throw new Error('「' + CONFIG.RAW_SHEET_KEYWORD + '」を名前に含むシート（例：リスト（介護））が見つかりません。');
   }
-  if (hr < 0) throw new Error('「' + CONFIG.AGENT_HEADER + '」列が見つかりません。RAWシートを確認してください。');
-
-  const headers = values[hr].map(c => String(c).trim());
-  const agentCol = headers.indexOf(CONFIG.AGENT_HEADER);
-  const typeCol = headers.findIndex(h => h.indexOf(CONFIG.TYPE_HEADER) >= 0);
-
-  // 「○回目架電日」列を検出。結果はその右隣（日→結果→詳細 の並び前提）
-  const dateCols = [];
-  headers.forEach((h, idx) => { if (/回目架電日/.test(h)) dateCols.push(idx); });
-  if (dateCols.length === 0) throw new Error('「○回目架電日」列が見つかりません。');
 
   const out = [['担当者', '種別', '架電日', '結果', '接触', 'アポ']];
   const agentSet = [];
   const typeSet = [];
   let maxDate = null;
 
-  for (let r = hr + 1; r < values.length; r++) {
-    const row = values[r];
-    const agent = String(row[agentCol] || '').trim();
-    if (!agent) continue;
-    const type = (typeCol >= 0 ? String(row[typeCol] || '').trim() : '') || '(未設定)';
+  sheets.forEach(sh => {
+    const type = typeFromTab_(sh.getName()); // タブ名の（ ）内 → 種別
+    const values = sh.getDataRange().getValues();
 
-    dateCols.forEach(dc => {
-      const date = toDate_(row[dc]);
-      if (!date) return; // 架電日が無い行は集計対象外（日付ベース集計のため）
-      const result = String(row[dc + 1] || '').trim();
-      const contact = CONFIG.CONTACT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
-      const appt = CONFIG.APPT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
-      out.push([agent, type, date, result, contact, appt]);
-      if (agentSet.indexOf(agent) < 0) agentSet.push(agent);
-      if (typeSet.indexOf(type) < 0) typeSet.push(type);
-      if (!maxDate || date > maxDate) maxDate = date;
-    });
-  }
+    // ヘッダー行（先頭10行以内で「架電担当者」を含む行）
+    let hr = -1;
+    for (let i = 0; i < Math.min(values.length, 10); i++) {
+      if (values[i].some(c => String(c).trim() === CONFIG.AGENT_HEADER)) { hr = i; break; }
+    }
+    if (hr < 0) return; // 架電担当者列が無いシートはスキップ
+
+    const headers = values[hr].map(c => String(c).trim());
+    const agentCol = headers.indexOf(CONFIG.AGENT_HEADER);
+    const dateCols = [];
+    headers.forEach((h, idx) => { if (/回目架電日/.test(h)) dateCols.push(idx); });
+    if (dateCols.length === 0) return;
+
+    if (typeSet.indexOf(type) < 0) typeSet.push(type);
+
+    for (let r = hr + 1; r < values.length; r++) {
+      const row = values[r];
+      const agent = String(row[agentCol] || '').trim();
+      if (!agent) continue;
+      dateCols.forEach(dc => {
+        const date = toDate_(row[dc]);
+        if (!date) return; // 架電日が無い行は集計対象外（日付ベース集計のため）
+        const result = String(row[dc + 1] || '').trim();
+        const contact = CONFIG.CONTACT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
+        const appt = CONFIG.APPT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
+        out.push([agent, type, date, result, contact, appt]);
+        if (agentSet.indexOf(agent) < 0) agentSet.push(agent);
+        if (!maxDate || date > maxDate) maxDate = date;
+      });
+    }
+  });
   return { calls: out, agents: agentSet, types: typeSet, maxDate: maxDate };
 }
 
@@ -155,21 +159,19 @@ function generateWeeks_(anyDateInMonth) {
   return { monthStart: monthStart, monthEnd: monthEnd, weeks: weeks };
 }
 
-/** RAW（生ログ）シートを特定 */
-function findRawSheet_(ss) {
-  if (CONFIG.RAW_SHEET) {
-    const s = ss.getSheetByName(CONFIG.RAW_SHEET);
-    if (s) return s;
-  }
-  const sheets = ss.getSheets();
-  for (const s of sheets) {
-    if ([CONFIG.DASH_SHEET, CONFIG.CALC_SHEET, CONFIG.GOAL_SHEET].indexOf(s.getName()) >= 0) continue;
-    const lastCol = s.getLastColumn();
-    if (lastCol === 0) continue;
-    const head = s.getRange(1, 1, Math.min(10, s.getLastRow() || 1), lastCol).getValues();
-    if (head.some(rowArr => rowArr.some(c => String(c).trim() === CONFIG.AGENT_HEADER))) return s;
-  }
-  throw new Error('生ログのシートが見つかりません。CONFIG.RAW_SHEET にシート名を指定してください。');
+/** 種別ごとの生ログタブ（名前に RAW_SHEET_KEYWORD を含む）を列挙 */
+function findRawSheets_(ss) {
+  const exclude = [CONFIG.DASH_SHEET, CONFIG.CALC_SHEET, CONFIG.GOAL_SHEET];
+  return ss.getSheets().filter(s =>
+    exclude.indexOf(s.getName()) < 0 &&
+    s.getName().indexOf(CONFIG.RAW_SHEET_KEYWORD) >= 0
+  );
+}
+
+/** タブ名から種別を抽出（「リスト（介護）」→「介護」。括弧が無ければタブ名そのまま） */
+function typeFromTab_(name) {
+  const m = name.match(/[（(]\s*([^）)]+?)\s*[）)]/);
+  return m ? m[1].trim() : name.trim();
 }
 
 /** 隠しシートに展開済みデータ・ヘルパー・週テーブルを書き出す */
