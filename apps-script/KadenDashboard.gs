@@ -4,14 +4,19 @@
  * 使い方：
  *  1. スプレッドシートで「拡張機能 > Apps Script」を開く
  *  2. このコードを全文貼り付けて保存
- *  3. シートに戻り、メニュー「架電ダッシュボード > 集計を更新／再構築」を実行
+ *  3. シートに戻り、メニュー「架電ダッシュボード > ① 集計を更新 / 再構築」を実行
  *     （初回は権限の承認が必要です）
  *
  * 仕組み：
- *  - 生ログ（1法人=1行、1〜4回目の架電日/結果）を 架電担当者 × サービス種別 で集計
- *  - 集計結果を隠しシート「_集計データ」に1架電=1行で展開
- *  - 「ダッシュボード」は SUMIFS/COUNTIFS の数式で、種別ドロップダウンに連動して即再計算
+ *  - 生ログ（1法人=1行、1〜4回目の架電日/結果）を 1架電=1行 に展開（隠しシート「_集計データ」）
+ *  - 架電担当者 × サービス種別 × 架電日 で集計
+ *  - 「ダッシュボード」は SUMIFS/COUNTIFS の数式。種別・期間の各プルダウンに連動して即再計算
  *  - 未達(NA)セルは条件付き書式で自動色分け
+ *
+ * 期間モード：
+ *  - 月間   … 対象月（データの最新月）全体
+ *  - 週次   … 「1日始まり・月〜日区切り・月末締め」で自動生成した週をプルダウン選択
+ *  - 任意期間 … 開始日・終了日を直接入力
  * ================================================================== */
 
 const CONFIG = {
@@ -22,9 +27,10 @@ const CONFIG = {
   AGENT_HEADER: '架電担当者',
   TYPE_HEADER: 'サービス種別',    // 部分一致（「サービス種別一覧」にヒット）
 
-  // ▼ 自社の「架電結果」の選択肢に合わせて調整してください（部分一致でカウント）
-  CONTACT_KEYWORDS: ['担当接触', '担当者接触', 'アポ'], // 担当接触としてカウントする結果
-  APPT_KEYWORDS: ['アポ'],                              // アポとしてカウントする結果
+  // 架電結果の分類（部分一致でカウント）
+  //  選択肢例: 1_不通 / 2_現アナ / 3〜6_受付対応：… / 7〜10_担当接触：…（10=アポ）
+  CONTACT_KEYWORDS: ['担当接触'], // 7〜10「担当接触：…」を担当接触としてカウント
+  APPT_KEYWORDS: ['アポ'],        // 10「担当接触：アポ」をアポとしてカウント
 
   CONTACT_RATE_BENCH: 0.2,       // 担当接触率の基準（これ未満を黄色で警告）
 };
@@ -50,11 +56,17 @@ function onOpen() {
 /** メイン処理 */
 function buildDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const { calls, agents, types } = collectCalls_(ss);
-  writeCalcSheet_(ss, calls);
+  const { calls, agents, types, maxDate } = collectCalls_(ss);
+  const wk = generateWeeks_(maxDate || new Date());
+  writeCalcSheet_(ss, calls, wk);
   ensureGoalSheet_(ss);
-  layoutDashboard_(ss, agents, types);
-  SpreadsheetApp.getUi().alert('集計を更新しました（' + agents.length + '名 / 架電 ' + (calls.length - 1) + '件）。');
+  layoutDashboard_(ss, agents, types, wk);
+  SpreadsheetApp.getUi().alert(
+    '集計を更新しました。\n' +
+    'メンバー: ' + agents.length + '名 ／ 架電: ' + (calls.length - 1) + '件\n' +
+    '対象月: ' + Utilities.formatDate(wk.monthStart, Session.getScriptTimeZone(), 'yyyy/MM') +
+    '（週 ' + wk.weeks.length + '区分）'
+  );
 }
 
 /** 生ログを 1架電=1行 に展開して集計用の配列を作る */
@@ -78,9 +90,10 @@ function collectCalls_(ss) {
   headers.forEach((h, idx) => { if (/回目架電日/.test(h)) dateCols.push(idx); });
   if (dateCols.length === 0) throw new Error('「○回目架電日」列が見つかりません。');
 
-  const out = [['担当者', '種別', '結果', '接触', 'アポ']];
+  const out = [['担当者', '種別', '架電日', '結果', '接触', 'アポ']];
   const agentSet = [];
   const typeSet = [];
+  let maxDate = null;
 
   for (let r = hr + 1; r < values.length; r++) {
     const row = values[r];
@@ -89,18 +102,57 @@ function collectCalls_(ss) {
     const type = (typeCol >= 0 ? String(row[typeCol] || '').trim() : '') || '(未設定)';
 
     dateCols.forEach(dc => {
-      const date = row[dc];
+      const date = toDate_(row[dc]);
+      if (!date) return; // 架電日が無い行は集計対象外（日付ベース集計のため）
       const result = String(row[dc + 1] || '').trim();
-      const hasCall = (date !== '' && date != null) || result !== '';
-      if (!hasCall) return;
       const contact = CONFIG.CONTACT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
       const appt = CONFIG.APPT_KEYWORDS.some(k => k && result.indexOf(k) >= 0) ? 1 : 0;
-      out.push([agent, type, result, contact, appt]);
+      out.push([agent, type, date, result, contact, appt]);
       if (agentSet.indexOf(agent) < 0) agentSet.push(agent);
       if (typeSet.indexOf(type) < 0) typeSet.push(type);
+      if (!maxDate || date > maxDate) maxDate = date;
     });
   }
-  return { calls: out, agents: agentSet, types: typeSet };
+  return { calls: out, agents: agentSet, types: typeSet, maxDate: maxDate };
+}
+
+/** 値を Date に変換（Date / 文字列日付 のみ。空や不正は null） */
+function toDate_(v) {
+  if (v instanceof Date && !isNaN(v.getTime())) return v;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const d = new Date(v.trim());
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+/**
+ * 月の週区分を生成（ルール：1日始まり・月〜日区切り・月末締め）
+ * 例) 2026/6 → 6/1〜6/7, 6/8〜6/14, 6/15〜6/21, 6/22〜6/28, 6/29〜6/30
+ */
+function generateWeeks_(anyDateInMonth) {
+  const y = anyDateInMonth.getFullYear();
+  const m = anyDateInMonth.getMonth();
+  const monthStart = new Date(y, m, 1);
+  const monthEnd = new Date(y, m + 1, 0);
+  const weeks = [];
+  let ws = new Date(monthStart);
+  let n = 1;
+  while (ws <= monthEnd) {
+    const dow = ws.getDay();              // 0=日, 1=月, … 6=土
+    const toSunday = (7 - dow) % 7;       // 直近（以降）の日曜まで
+    let we = new Date(ws);
+    we.setDate(we.getDate() + toSunday);
+    if (we > monthEnd) we = new Date(monthEnd);
+    const label = '第' + n + '週 (' +
+      (ws.getMonth() + 1) + '/' + ws.getDate() + '〜' +
+      (we.getMonth() + 1) + '/' + we.getDate() + ')';
+    weeks.push([label, new Date(ws), new Date(we)]);
+    ws = new Date(we);
+    ws.setDate(ws.getDate() + 1);
+    n++;
+  }
+  return { monthStart: monthStart, monthEnd: monthEnd, weeks: weeks };
 }
 
 /** RAW（生ログ）シートを特定 */
@@ -120,16 +172,35 @@ function findRawSheet_(ss) {
   throw new Error('生ログのシートが見つかりません。CONFIG.RAW_SHEET にシート名を指定してください。');
 }
 
-/** 隠しシートに展開済みデータを書き出す */
-function writeCalcSheet_(ss, calls) {
+/** 隠しシートに展開済みデータ・ヘルパー・週テーブルを書き出す */
+function writeCalcSheet_(ss, calls, wk) {
+  const DN = "'" + CONFIG.DASH_SHEET + "'";
   let calc = ss.getSheetByName(CONFIG.CALC_SHEET);
   if (!calc) calc = ss.insertSheet(CONFIG.CALC_SHEET);
-  calc.clearContents();
-  calc.getRange(1, 1, calls.length, 5).setValues(calls);
-  // 種別フィルタの判定用セル：全体なら "*"（=任意の種別にマッチ）
-  calc.getRange('G1').setFormula(
-    "=IF('" + CONFIG.DASH_SHEET + "'!$C$3=\"全体\",\"*\",'" + CONFIG.DASH_SHEET + "'!$C$3)"
-  );
+  calc.clear();
+
+  // A:F = 1架電=1行（担当者, 種別, 架電日, 結果, 接触, アポ）
+  calc.getRange(1, 1, calls.length, 6).setValues(calls);
+  calc.getRange(2, 3, Math.max(calls.length - 1, 1), 1).setNumberFormat('yyyy/mm/dd');
+
+  // H列 = ヘルパー
+  calc.getRange('H1').setValue(wk.monthStart).setNumberFormat('yyyy/mm/dd'); // 月初
+  calc.getRange('H2').setValue(wk.monthEnd).setNumberFormat('yyyy/mm/dd');   // 月末
+  calc.getRange('H3').setFormula('=IF(' + DN + '!$C$3="全体","*",' + DN + '!$C$3)'); // 種別判定
+  calc.getRange('H4').setFormula('=' + DN + '!$C$4');                                 // 期間モード
+  calc.getRange('H5').setFormula(                                                     // 実効・開始日
+    '=IF($H$4="月間",$H$1,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$5,$J:$L,2,FALSE),$H$1),' + DN + '!$C$6))'
+  ).setNumberFormat('yyyy/mm/dd');
+  calc.getRange('H6').setFormula(                                                     // 実効・終了日
+    '=IF($H$4="月間",$H$2,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$5,$J:$L,3,FALSE),$H$2),' + DN + '!$E$6))'
+  ).setNumberFormat('yyyy/mm/dd');
+
+  // J:L = 週テーブル（ラベル, 開始, 終了）
+  if (wk.weeks.length) {
+    calc.getRange(1, 10, wk.weeks.length, 3).setValues(wk.weeks);
+    calc.getRange(1, 11, wk.weeks.length, 2).setNumberFormat('yyyy/mm/dd');
+  }
+
   calc.hideSheet();
 }
 
@@ -155,39 +226,69 @@ function resetGoalSheet() {
 }
 
 /** ダッシュボードのレイアウト・数式・書式を構築 */
-function layoutDashboard_(ss, agents, types) {
+function layoutDashboard_(ss, agents, types, wk) {
   const CN = "'" + CONFIG.CALC_SHEET + "'";
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
-  const crit = CN + "!$G$1";
   const bench = CONFIG.CONTACT_RATE_BENCH;
+
+  // 集計範囲・判定セル
+  const A = CN + '!$A:$A', B = CN + '!$B:$B', Cc = CN + '!$C:$C',
+    E = CN + '!$E:$E', F = CN + '!$F:$F';
+  const tc = CN + '!$H$3', sd = CN + '!$H$5', ed = CN + '!$H$6';
+  const dateCrit = ',' + Cc + ',">="&' + sd + ',' + Cc + ',"<="&' + ed;
 
   let dash = ss.getSheetByName(CONFIG.DASH_SHEET);
   if (!dash) dash = ss.insertSheet(CONFIG.DASH_SHEET);
-  const prevType = dash.getRange('C3').getValue();
+  const prev = {
+    type: dash.getRange('C3').getValue(),
+    mode: dash.getRange('C4').getValue(),
+    week: dash.getRange('C5').getValue(),
+  };
   dash.clear();
   dash.clearConditionalFormatRules();
-  dash.getRange(1, 1, dash.getMaxRows(), 11).setDataValidation(null);
+  dash.getRange(1, 1, dash.getMaxRows(), 12).setDataValidation(null);
 
-  // ---- タイトル ----
-  dash.getRange('A1:K1').merge().setValue('架電KPIダッシュボード')
+  // ---- タイトル / 対象期間表示 ----
+  dash.getRange('A1:L1').merge().setValue('架電KPIダッシュボード')
     .setFontSize(20).setFontWeight('bold').setVerticalAlignment('middle');
   dash.setRowHeight(1, 42);
-  dash.getRange('A2').setValue('対象：月間集計 ／ 生ログを 架電担当者 × サービス種別 で自動集計')
-    .setFontColor('#64748b');
+  dash.getRange('A2:L2').merge();
+  dash.getRange('A2').setFormula(
+    '="対象期間 "&TEXT(' + sd + ',"yyyy/m/d")&" 〜 "&TEXT(' + ed + ',"yyyy/m/d")' +
+    '&"　|　種別："&C3&"　|　"&C4'
+  ).setFontColor('#64748b');
 
-  // ---- 種別ドロップダウン ----
+  // ---- コントロール（種別 / 期間モード / 週 / 任意期間） ----
   dash.getRange('A3').setValue('種別フィルタ').setFontWeight('bold');
-  const dvList = ['全体'].concat(types);
-  const dv = SpreadsheetApp.newDataValidation().requireValueInList(dvList, true).setAllowInvalid(false).build();
-  dash.getRange('C3').setDataValidation(dv)
-    .setValue(dvList.indexOf(prevType) >= 0 ? prevType : '全体')
+  const typeList = ['全体'].concat(types);
+  dash.getRange('C3')
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(typeList, true).setAllowInvalid(false).build())
+    .setValue(typeList.indexOf(prev.type) >= 0 ? prev.type : '全体')
     .setBackground('#eef2ff').setFontWeight('bold');
 
+  dash.getRange('A4').setValue('期間モード').setFontWeight('bold');
+  const modeList = ['月間', '週次', '任意期間'];
+  dash.getRange('C4')
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(modeList, true).setAllowInvalid(false).build())
+    .setValue(modeList.indexOf(prev.mode) >= 0 ? prev.mode : '月間')
+    .setBackground('#eef2ff').setFontWeight('bold');
+
+  dash.getRange('A5').setValue('週を選択（週次のとき）').setFontColor('#64748b');
+  const weekLabels = wk.weeks.map(w => w[0]);
+  dash.getRange('C5')
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(weekLabels, true).setAllowInvalid(true).build())
+    .setValue(weekLabels.indexOf(prev.week) >= 0 ? prev.week : (weekLabels[0] || ''));
+
+  dash.getRange('A6').setValue('任意期間（任意期間のとき）').setFontColor('#64748b');
+  dash.getRange('C6').setValue(wk.monthStart).setNumberFormat('yyyy/mm/dd');
+  dash.getRange('D6').setValue('〜').setHorizontalAlignment('center');
+  dash.getRange('E6').setValue(wk.monthEnd).setNumberFormat('yyyy/mm/dd');
+
   // ---- 表 ----
-  const HR = 8;                 // ヘッダー行
-  const first = HR + 1;         // 最初のメンバー行
+  const HR = 11;                // ヘッダー行
+  const first = HR + 1;
   const n = agents.length;
-  const last = HR + n;          // 最後のメンバー行
+  const last = HR + n;
   const rt = last + 1;          // 合計行
 
   const header = ['メンバー', '架電件数', '担当接触数', '担当接触率', 'アポ数',
@@ -195,88 +296,82 @@ function layoutDashboard_(ss, agents, types) {
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
-  // メンバー行の数式
   for (let i = 0; i < n; i++) {
     const r = first + i;
     dash.getRange(r, 1).setValue(agents[i]);
-    dash.getRange(r, 2).setFormula(`=COUNTIFS(${CN}!$A:$A,$A${r},${CN}!$B:$B,${crit})`);
-    dash.getRange(r, 3).setFormula(`=SUMIFS(${CN}!$D:$D,${CN}!$A:$A,$A${r},${CN}!$B:$B,${crit})`);
-    dash.getRange(r, 4).setFormula(`=IF($B${r}=0,0,$C${r}/$B${r})`);
-    dash.getRange(r, 5).setFormula(`=SUMIFS(${CN}!$E:$E,${CN}!$A:$A,$A${r},${CN}!$B:$B,${crit})`);
-    dash.getRange(r, 6).setFormula(`=IF($C${r}=0,0,$E${r}/$C${r})`);
-    dash.getRange(r, 7).setFormula(`=IF($B${r}=0,0,$E${r}/$B${r})`);
-    dash.getRange(r, 8).setFormula(`=IFERROR(VLOOKUP($A${r},${GN}!$A:$D,3,FALSE),"")`);
-    dash.getRange(r, 9).setFormula(`=IF($H${r}="","",$B${r}/$H${r})`);
-    dash.getRange(r, 10).setFormula(`=IFERROR(VLOOKUP($A${r},${GN}!$A:$D,4,FALSE),0)`);
+    dash.getRange(r, 2).setFormula('=COUNTIFS(' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 3).setFormula('=SUMIFS(' + E + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 4).setFormula('=IF($B' + r + '=0,0,$C' + r + '/$B' + r + ')');
+    dash.getRange(r, 5).setFormula('=SUMIFS(' + F + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
+    dash.getRange(r, 6).setFormula('=IF($C' + r + '=0,0,$E' + r + '/$C' + r + ')');
+    dash.getRange(r, 7).setFormula('=IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')');
+    dash.getRange(r, 8).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
+    dash.getRange(r, 9).setFormula('=IF($H' + r + '="","",$B' + r + '/$H' + r + ')');
+    dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
     dash.getRange(r, 11).setFormula(
-      `=IF($E${r}=0,"未達",IF(AND($G${r}>=$J${r},$D${r}>=${bench}),"達成","要注意"))`
+      '=IF($E' + r + '=0,"未達",IF(AND($G' + r + '>=$J' + r + ',$D' + r + '>=' + bench + '),"達成","要注意"))'
     );
   }
 
   // 合計 / 平均 行
   dash.getRange(rt, 1).setValue('合計 / 平均').setFontWeight('bold');
-  dash.getRange(rt, 2).setFormula(`=SUM(B${first}:B${last})`);
-  dash.getRange(rt, 3).setFormula(`=SUM(C${first}:C${last})`);
-  dash.getRange(rt, 4).setFormula(`=IF($B${rt}=0,0,$C${rt}/$B${rt})`);
-  dash.getRange(rt, 5).setFormula(`=SUM(E${first}:E${last})`);
-  dash.getRange(rt, 6).setFormula(`=IF($C${rt}=0,0,$E${rt}/$C${rt})`);
-  dash.getRange(rt, 7).setFormula(`=IF($B${rt}=0,0,$E${rt}/$B${rt})`);
-  dash.getRange(rt, 8).setFormula(`=SUM(H${first}:H${last})`);
-  dash.getRange(rt, 9).setFormula(`=IF($H${rt}=0,"",$B${rt}/$H${rt})`);
-  dash.getRange(rt, 10).setFormula(`=IFERROR(SUMPRODUCT(H${first}:H${last},J${first}:J${last})/$H${rt},0)`);
-  dash.getRange(rt, 11).setFormula(`=COUNTIF(K${first}:K${last},"達成")&" / ${n}名 達成"`);
+  dash.getRange(rt, 2).setFormula('=SUM(B' + first + ':B' + last + ')');
+  dash.getRange(rt, 3).setFormula('=SUM(C' + first + ':C' + last + ')');
+  dash.getRange(rt, 4).setFormula('=IF($B' + rt + '=0,0,$C' + rt + '/$B' + rt + ')');
+  dash.getRange(rt, 5).setFormula('=SUM(E' + first + ':E' + last + ')');
+  dash.getRange(rt, 6).setFormula('=IF($C' + rt + '=0,0,$E' + rt + '/$C' + rt + ')');
+  dash.getRange(rt, 7).setFormula('=IF($B' + rt + '=0,0,$E' + rt + '/$B' + rt + ')');
+  dash.getRange(rt, 8).setFormula('=SUM(H' + first + ':H' + last + ')');
+  dash.getRange(rt, 9).setFormula('=IF($H' + rt + '=0,"",$B' + rt + '/$H' + rt + ')');
+  dash.getRange(rt, 10).setFormula('=IFERROR(SUMPRODUCT(H' + first + ':H' + last + ',J' + first + ':J' + last + ')/$H' + rt + ',0)');
+  dash.getRange(rt, 11).setFormula('=COUNTIF(K' + first + ':K' + last + ',"達成")&" / ' + n + '名 達成"');
   dash.getRange(rt, 1, 1, 11).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // ---- KPI（合計行を参照） ----
-  const kpis = [['総架電数', `=B${rt}`, '#'], ['担当接触率', `=D${rt}`, '%1'],
-    ['総アポ数', `=E${rt}`, '#'], ['平均アポ率', `=G${rt}`, '%2']];
+  const kpis = [['総架電数', '=B' + rt, '#'], ['担当接触率', '=D' + rt, '%1'],
+    ['総アポ数', '=E' + rt, '#'], ['平均アポ率', '=G' + rt, '%2']];
   kpis.forEach((k, i) => {
     const c = 1 + i * 3;
-    dash.getRange(5, c).setValue(k[0]).setFontColor('#64748b').setFontWeight('bold');
-    const v = dash.getRange(6, c).setFormula(k[1]).setFontSize(18).setFontWeight('bold');
+    dash.getRange(8, c).setValue(k[0]).setFontColor('#64748b').setFontWeight('bold');
+    const v = dash.getRange(9, c).setFormula(k[1]).setFontSize(18).setFontWeight('bold');
     if (k[2] === '#') v.setNumberFormat('#,##0');
     if (k[2] === '%1') v.setNumberFormat('0.0%');
     if (k[2] === '%2') v.setNumberFormat('0.00%');
   });
 
   // ---- 数値書式 ----
-  dash.getRange(first, 2, n + 1, 1).setNumberFormat('#,##0'); // 架電件数
-  dash.getRange(first, 3, n + 1, 1).setNumberFormat('#,##0'); // 担当接触数
-  dash.getRange(first, 5, n + 1, 1).setNumberFormat('#,##0'); // アポ数
-  dash.getRange(first, 8, n + 1, 1).setNumberFormat('#,##0'); // 月間架電目標
-  dash.getRange(first, 4, n + 1, 1).setNumberFormat('0.0%');  // 担当接触率
-  dash.getRange(first, 6, n + 1, 1).setNumberFormat('0.0%');  // 接触→アポ率
-  dash.getRange(first, 7, n + 1, 1).setNumberFormat('0.00%'); // アポ率
-  dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.0%');  // 目標進捗
-  dash.getRange(first, 10, n + 1, 1).setNumberFormat('0.0%'); // 目標アポ率
+  dash.getRange(first, 2, n + 1, 1).setNumberFormat('#,##0');
+  dash.getRange(first, 3, n + 1, 1).setNumberFormat('#,##0');
+  dash.getRange(first, 5, n + 1, 1).setNumberFormat('#,##0');
+  dash.getRange(first, 8, n + 1, 1).setNumberFormat('#,##0');
+  dash.getRange(first, 4, n + 1, 1).setNumberFormat('0.0%');
+  dash.getRange(first, 6, n + 1, 1).setNumberFormat('0.0%');
+  dash.getRange(first, 7, n + 1, 1).setNumberFormat('0.00%');
+  dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.0%');
+  dash.getRange(first, 10, n + 1, 1).setNumberFormat('0.0%');
 
-  // ---- 条件付き書式（未達=NA を色分け） ----
+  // ---- 条件付き書式（未達=NA） ----
   const rules = [];
-  const apptRange = dash.getRange(first, 5, n, 1);   // アポ数=0
-  const apptRateRange = dash.getRange(first, 7, n, 1); // アポ率<目標
-  const contactRange = dash.getRange(first, 4, n, 1);  // 接触率<基準
-  const judgeRange = dash.getRange(first, 11, n, 1);
-
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(`=$E${first}=0`)
-    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([apptRange]).build());
+    .whenFormulaSatisfied('=$E' + first + '=0')
+    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([dash.getRange(first, 5, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(`=$G${first}<$J${first}`)
-    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([apptRateRange]).build());
+    .whenFormulaSatisfied('=$G' + first + '<$J' + first)
+    .setBackground('#fff1f2').setFontColor('#e11d48').setRanges([dash.getRange(first, 7, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied(`=$D${first}<${bench}`)
-    .setBackground('#fffbeb').setFontColor('#b45309').setRanges([contactRange]).build());
+    .whenFormulaSatisfied('=$D' + first + '<' + bench)
+    .setBackground('#fffbeb').setFontColor('#b45309').setRanges([dash.getRange(first, 4, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('未達')
-    .setBackground('#fff1f2').setFontColor('#be123c').setBold(true).setRanges([judgeRange]).build());
+    .setBackground('#fff1f2').setFontColor('#be123c').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
   rules.push(SpreadsheetApp.newConditionalFormatRule()
     .whenTextEqualTo('達成')
-    .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([judgeRange]).build());
+    .setBackground('#ecfdf5').setFontColor('#047857').setBold(true).setRanges([dash.getRange(first, 11, n, 1)]).build());
   dash.setConditionalFormatRules(rules);
 
   // ---- 体裁 ----
-  dash.setColumnWidth(1, 110);
+  dash.setColumnWidth(1, 130);
   dash.setColumnWidths(2, 10, 92);
   dash.setFrozenRows(HR);
   dash.getRange(HR, 1, n + 2, 11)
