@@ -405,10 +405,10 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.clear();
   dash.clearConditionalFormatRules();
   dash.getCharts().forEach(c => dash.removeChart(c)); // clearではチャートは消えないため
-  dash.getRange(1, 1, dash.getMaxRows(), 15).setDataValidation(null);
+  dash.getRange(1, 1, dash.getMaxRows(), 14).setDataValidation(null);
 
   // ---- タイトル / 対象期間表示 ----
-  dash.getRange('A1:O1').merge().setValue('架電KPIダッシュボード')
+  dash.getRange('A1:N1').merge().setValue('架電KPIダッシュボード')
     .setFontSize(20).setFontWeight('bold').setVerticalAlignment('middle');
   dash.setRowHeight(1, 42);
 
@@ -466,7 +466,7 @@ function layoutDashboard_(ss, agents, types, months) {
 
   const header = ['メンバー', '架電件数', '接触数', '接触率', '担当接触数',
     '受付突破率', 'アポ数', 'アポ転換率', 'アポ率', '架電目標', '目標進捗',
-    '目標アポ率', '判定', '進捗バー', 'おすすめの打ち手'];
+    '目標アポ率', '判定', 'おすすめの打ち手'];
   dash.getRange(HR, 1, 1, header.length).setValues([header])
     .setFontWeight('bold').setBackground('#f1f5f9').setFontColor('#475569');
 
@@ -482,18 +482,17 @@ function layoutDashboard_(ss, agents, types, months) {
     'アポ数 ÷ 担当接触数。担当者と話せたうちアポになった割合（担当クロージング力）',
     'アポ数 ÷ 架電件数。全架電に対するアポ獲得率',
     '目標シートの「月間架電目標」',
-    '架電件数 ÷ 月間架電目標',
+    'ゲージ＝架電件数÷架電目標。█の数と%で進捗を表示',
     '目標シートの「目標アポ率」',
     'アポ率が目標以上かつ担当接触率20%以上で「達成」／アポ0で「未達」／その他「要注意」',
-    '架電件数 ÷ 月間架電目標 のバー表示',
     'ファネルの最弱点に応じた次の一手（効く順に1つ提示）',
   ];
   notes.forEach((note, i) => dash.getRange(HR, i + 1).setNote(note));
 
   for (let i = 0; i < n; i++) {
     const r = first + i;
-    // 列: B架電 C接触数 D接触率 E担当接触数 F受付突破率 G アポ数 H接触→アポ率
-    //     I アポ率 J月間架電目標 K目標進捗 L目標アポ率 M判定 N進捗バー O打ち手
+    // 列: B架電 C接触数 D接触率 E担当接触数 F受付突破率 G アポ数 H アポ転換率
+    //     I アポ率 J架電目標 K目標進捗(ゲージ+%) L目標アポ率 M判定 N打ち手
     dash.getRange(r, 1).setValue(agents[i]);
     dash.getRange(r, 2).setFormula('=COUNTIFS(' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
     dash.getRange(r, 3).setFormula('=SUMIFS(' + Gc + ',' + A + ',$A' + r + ',' + B + ',' + tc + dateCrit + ')');
@@ -504,18 +503,16 @@ function layoutDashboard_(ss, agents, types, months) {
     dash.getRange(r, 8).setFormula('=IF($E' + r + '=0,0,$G' + r + '/$E' + r + ')');
     dash.getRange(r, 9).setFormula('=IF($B' + r + '=0,0,$G' + r + '/$B' + r + ')');
     dash.getRange(r, 10).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,3,FALSE),"")');
-    dash.getRange(r, 11).setFormula('=IF($J' + r + '="","",$B' + r + '/$J' + r + ')');
+    // 目標進捗＝ゲージ(█/░)＋% を1セルに（目標未設定は空欄）
+    dash.getRange(r, 11).setFormula(
+      '=IF($J' + r + '="","",REPT("█",ROUND(MIN($B' + r + '/$J' + r + ',1)*20))&REPT("░",20-ROUND(MIN($B' + r + '/$J' + r + ',1)*20))&"  "&TEXT($B' + r + '/$J' + r + ',"0.0%"))'
+    );
     dash.getRange(r, 12).setFormula('=IFERROR(VLOOKUP($A' + r + ',' + GN + '!$A:$D,4,FALSE),0)');
     dash.getRange(r, 13).setFormula(
       '=IF($G' + r + '=0,"未達",IF(AND($I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),"達成","要注意"))'
     );
+    // おすすめの打ち手（目標シートのルール表F:Iを参照。目標未設定は空欄）
     dash.getRange(r, 14).setFormula(
-      '=IF($J' + r + '="","",SPARKLINE($B' + r + ',{"charttype","bar";"max",$J' + r + ';"color1","#6366f1";"empty","zero"}))'
-    );
-    // おすすめの打ち手（ファネルの最弱点を1つ提示）
-    // 打ち手は目標シートのルール表(F:I)を参照（閾値・文言はシートで編集可）
-    // 目標未設定（月間架電目標=空）の人は打ち手も空欄
-    dash.getRange(r, 15).setFormula(
       '=IFERROR(IF($J' + r + '="","",' +
       'IF($B' + r + '=0,' + GN + '!$I$7,' +
       'IF(AND($G' + r + '>0,$I' + r + '>=$L' + r + ',IF($B' + r + '=0,0,$E' + r + '/$B' + r + ')>=' + bench + '),' + GN + '!$I$3,' +
@@ -536,13 +533,12 @@ function layoutDashboard_(ss, agents, types, months) {
   dash.getRange(rt, 8).setFormula('=IF($E' + rt + '=0,0,$G' + rt + '/$E' + rt + ')');
   dash.getRange(rt, 9).setFormula('=IF($B' + rt + '=0,0,$G' + rt + '/$B' + rt + ')');
   dash.getRange(rt, 10).setFormula('=SUM(J' + first + ':J' + last + ')');
-  dash.getRange(rt, 11).setFormula('=IF($J' + rt + '=0,"",$B' + rt + '/$J' + rt + ')');
+  dash.getRange(rt, 11).setFormula(
+    '=IF($J' + rt + '=0,"",REPT("█",ROUND(MIN($B' + rt + '/$J' + rt + ',1)*20))&REPT("░",20-ROUND(MIN($B' + rt + '/$J' + rt + ',1)*20))&"  "&TEXT($B' + rt + '/$J' + rt + ',"0.0%"))'
+  );
   dash.getRange(rt, 12).setFormula('=IFERROR(SUMPRODUCT(J' + first + ':J' + last + ',L' + first + ':L' + last + ')/$J' + rt + ',0)');
   dash.getRange(rt, 13).setFormula('=COUNTIF(M' + first + ':M' + last + ',"達成")&" / ' + n + '名 達成"');
-  dash.getRange(rt, 14).setFormula(
-    '=IF($J' + rt + '=0,"",SPARKLINE($B' + rt + ',{"charttype","bar";"max",$J' + rt + ';"color1","#4f46e5";"empty","zero"}))'
-  );
-  dash.getRange(rt, 1, 1, 15).setBackground('#f8fafc').setFontWeight('bold')
+  dash.getRange(rt, 1, 1, 14).setBackground('#f8fafc').setFontWeight('bold')
     .setBorder(true, false, false, false, false, false, '#cbd5e1', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // ---- KPI（合計行を参照） ----
@@ -563,8 +559,9 @@ function layoutDashboard_(ss, agents, types, months) {
 
   // ---- 数値書式 ----
   [2, 3, 5, 7, 10].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('#,##0'));
-  [4, 6, 8, 11, 12].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
+  [4, 6, 8, 12].forEach(col => dash.getRange(first, col, n + 1, 1).setNumberFormat('0.0%'));
   dash.getRange(first, 9, n + 1, 1).setNumberFormat('0.00%'); // アポ率
+  dash.getRange(first, 11, n + 1, 1).setFontFamily('Roboto Mono').setFontSize(10); // ゲージは等幅で揃える
 
   // ---- 条件付き書式（未達=NA） ----
   const rules = [];
@@ -588,14 +585,14 @@ function layoutDashboard_(ss, agents, types, months) {
   // ---- 体裁（1画面に収める＋ヘッダーを整える）----
   dash.setColumnWidth(1, 88);          // メンバー
   dash.setColumnWidths(2, 12, 82);     // 架電件数〜目標アポ率
-  dash.setColumnWidth(14, 200);        // 進捗バー（目盛りを広く取り差を見やすく）
-  dash.setColumnWidth(15, 170);        // おすすめの打ち手（右が空欄なら溢れて表示）
-  dash.getRange(HR, 1, 1, 15)
+  dash.setColumnWidth(11, 230);        // 目標進捗（ゲージ＋%）を広く
+  dash.setColumnWidth(14, 170);        // おすすめの打ち手（右が空欄なら溢れて表示）
+  dash.getRange(HR, 1, 1, 14)
     .setWrap(true).setVerticalAlignment('middle').setHorizontalAlignment('center'); // ヘッダー折り返し＋中央
   dash.setRowHeight(HR, 34);
-  dash.getRange(first, 1, n + 1, 15).setFontSize(10);
+  dash.getRange(first, 1, n + 1, 14).setFontSize(10);
   dash.setFrozenRows(HR);
-  dash.getRange(HR, 1, n + 2, 15)
+  dash.getRange(HR, 1, n + 2, 14)
     .setBorder(true, true, true, true, true, true, '#e2e8f0', SpreadsheetApp.BorderStyle.SOLID);
   dash.setHiddenGridlines(true);
 
