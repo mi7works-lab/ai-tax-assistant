@@ -58,16 +58,47 @@ function onOpen() {
 function buildDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const { calls, agents, types, maxDate } = collectCalls_(ss);
-  const wk = generateWeeks_(maxDate || new Date());
-  writeCalcSheet_(ss, calls, wk);
+  const months = collectMonths_(calls, maxDate);
+  writeCalcSheet_(ss, calls, months);
   ensureGoalSheet_(ss);
-  layoutDashboard_(ss, agents, types, wk);
+  layoutDashboard_(ss, agents, types, months);
   SpreadsheetApp.getUi().alert(
     '集計を更新しました。\n' +
     'メンバー: ' + agents.length + '名 ／ 架電: ' + (calls.length - 1) + '件\n' +
-    '対象月: ' + Utilities.formatDate(wk.monthStart, Session.getScriptTimeZone(), 'yyyy/MM') +
-    '（週 ' + wk.weeks.length + '区分）'
+    '対象月: ' + months.map(m => m.label).join('、 ')
   );
+}
+
+/** データに含まれる月を抽出し、各月の週区分を生成（昇順） */
+function collectMonths_(calls, maxDate) {
+  const seen = {};
+  const list = [];
+  for (let i = 1; i < calls.length; i++) {
+    const d = calls[i][2];
+    if (!(d instanceof Date)) continue;
+    const key = d.getFullYear() + '-' + d.getMonth();
+    if (seen[key]) continue;
+    seen[key] = true;
+    const wk = generateWeeks_(d);
+    list.push({
+      label: d.getFullYear() + '/' + ('0' + (d.getMonth() + 1)).slice(-2),
+      monthStart: wk.monthStart,
+      monthEnd: wk.monthEnd,
+      weeks: wk.weeks,
+      sort: d.getFullYear() * 12 + d.getMonth(),
+    });
+  }
+  if (list.length === 0) {
+    const d = maxDate || new Date();
+    const wk = generateWeeks_(d);
+    list.push({
+      label: d.getFullYear() + '/' + ('0' + (d.getMonth() + 1)).slice(-2),
+      monthStart: wk.monthStart, monthEnd: wk.monthEnd, weeks: wk.weeks,
+      sort: d.getFullYear() * 12 + d.getMonth(),
+    });
+  }
+  list.sort((a, b) => a.sort - b.sort);
+  return list;
 }
 
 /** 種別ごとの生ログタブを全て走査し、1架電=1行 に展開して集計用配列を作る */
@@ -174,8 +205,9 @@ function typeFromTab_(name) {
   return m ? m[1].trim() : name.trim();
 }
 
-/** 隠しシートに展開済みデータ・ヘルパー・週テーブルを書き出す */
-function writeCalcSheet_(ss, calls, wk) {
+/** 隠しシートに展開済みデータ・ヘルパー・月/週テーブルを書き出す
+ *  コントロール: C3=種別 C4=対象月 C5=期間モード C6=週 C7/E7=任意期間 */
+function writeCalcSheet_(ss, calls, months) {
   const DN = "'" + CONFIG.DASH_SHEET + "'";
   let calc = ss.getSheetByName(CONFIG.CALC_SHEET);
   if (!calc) calc = ss.insertSheet(CONFIG.CALC_SHEET);
@@ -185,23 +217,34 @@ function writeCalcSheet_(ss, calls, wk) {
   calc.getRange(1, 1, calls.length, 6).setValues(calls);
   calc.getRange(2, 3, Math.max(calls.length - 1, 1), 1).setNumberFormat('yyyy/mm/dd');
 
+  // J:L = 週テーブル（キー="対象月|第N週", 開始, 終了）
+  const weekRows = [];
+  months.forEach(mo => {
+    mo.weeks.forEach((w, i) => {
+      weekRows.push([mo.label + '|第' + (i + 1) + '週', w[1], w[2]]);
+    });
+  });
+  if (weekRows.length) {
+    calc.getRange(1, 10, weekRows.length, 3).setValues(weekRows);
+    calc.getRange(1, 11, weekRows.length, 2).setNumberFormat('yyyy/mm/dd');
+  }
+
+  // N:P = 月テーブル（対象月ラベル, 月初, 月末）
+  const monthRows = months.map(mo => [mo.label, mo.monthStart, mo.monthEnd]);
+  calc.getRange(1, 14, monthRows.length, 3).setValues(monthRows);
+  calc.getRange(1, 15, monthRows.length, 2).setNumberFormat('yyyy/mm/dd');
+
   // H列 = ヘルパー
-  calc.getRange('H1').setValue(wk.monthStart).setNumberFormat('yyyy/mm/dd'); // 月初
-  calc.getRange('H2').setValue(wk.monthEnd).setNumberFormat('yyyy/mm/dd');   // 月末
+  calc.getRange('H1').setFormula('=IFERROR(VLOOKUP(' + DN + '!$C$4,$N:$P,2,FALSE),$O$1)').setNumberFormat('yyyy/mm/dd'); // 対象月の月初
+  calc.getRange('H2').setFormula('=IFERROR(VLOOKUP(' + DN + '!$C$4,$N:$P,3,FALSE),$P$1)').setNumberFormat('yyyy/mm/dd'); // 対象月の月末
   calc.getRange('H3').setFormula('=IF(' + DN + '!$C$3="全体","*",' + DN + '!$C$3)'); // 種別判定
-  calc.getRange('H4').setFormula('=' + DN + '!$C$4');                                 // 期間モード
+  calc.getRange('H4').setFormula('=' + DN + '!$C$5');                                 // 期間モード
   calc.getRange('H5').setFormula(                                                     // 実効・開始日
-    '=IF($H$4="月間",$H$1,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$5,$J:$L,2,FALSE),$H$1),' + DN + '!$C$6))'
+    '=IF($H$4="月間",$H$1,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$4&"|"&' + DN + '!$C$6,$J:$L,2,FALSE),$H$1),' + DN + '!$C$7))'
   ).setNumberFormat('yyyy/mm/dd');
   calc.getRange('H6').setFormula(                                                     // 実効・終了日
-    '=IF($H$4="月間",$H$2,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$5,$J:$L,3,FALSE),$H$2),' + DN + '!$E$6))'
+    '=IF($H$4="月間",$H$2,IF($H$4="週次",IFERROR(VLOOKUP(' + DN + '!$C$4&"|"&' + DN + '!$C$6,$J:$L,3,FALSE),$H$2),' + DN + '!$E$7))'
   ).setNumberFormat('yyyy/mm/dd');
-
-  // J:L = 週テーブル（ラベル, 開始, 終了）
-  if (wk.weeks.length) {
-    calc.getRange(1, 10, wk.weeks.length, 3).setValues(wk.weeks);
-    calc.getRange(1, 11, wk.weeks.length, 2).setNumberFormat('yyyy/mm/dd');
-  }
 
   calc.hideSheet();
 }
@@ -228,7 +271,7 @@ function resetGoalSheet() {
 }
 
 /** ダッシュボードのレイアウト・数式・書式を構築 */
-function layoutDashboard_(ss, agents, types, wk) {
+function layoutDashboard_(ss, agents, types, months) {
   const CN = "'" + CONFIG.CALC_SHEET + "'";
   const GN = "'" + CONFIG.GOAL_SHEET + "'";
   const bench = CONFIG.CONTACT_RATE_BENCH;
@@ -243,8 +286,9 @@ function layoutDashboard_(ss, agents, types, wk) {
   if (!dash) dash = ss.insertSheet(CONFIG.DASH_SHEET);
   const prev = {
     type: dash.getRange('C3').getValue(),
-    mode: dash.getRange('C4').getValue(),
-    week: dash.getRange('C5').getValue(),
+    month: dash.getRange('C4').getValue(),
+    mode: dash.getRange('C5').getValue(),
+    week: dash.getRange('C6').getValue(),
   };
   dash.clear();
   dash.clearConditionalFormatRules();
@@ -257,10 +301,16 @@ function layoutDashboard_(ss, agents, types, wk) {
   dash.getRange('A2:L2').merge();
   dash.getRange('A2').setFormula(
     '="対象期間 "&TEXT(' + sd + ',"yyyy/m/d")&" 〜 "&TEXT(' + ed + ',"yyyy/m/d")' +
-    '&"　|　種別："&C3&"　|　"&C4'
+    '&"　|　種別："&C3&"　|　"&C4&"　|　"&C5'
   ).setFontColor('#64748b');
 
-  // ---- コントロール（種別 / 期間モード / 週 / 任意期間） ----
+  // ---- コントロール（種別 / 対象月 / 期間モード / 週 / 任意期間） ----
+  const monthLabels = months.map(m => m.label);
+  const maxWeeks = months.reduce((mx, m) => Math.max(mx, m.weeks.length), 0);
+  const weekLabels = [];
+  for (let i = 1; i <= maxWeeks; i++) weekLabels.push('第' + i + '週');
+  const latestMonth = monthLabels[monthLabels.length - 1] || '';
+
   dash.getRange('A3').setValue('種別フィルタ').setFontWeight('bold');
   const typeList = ['全体'].concat(types);
   dash.getRange('C3')
@@ -268,23 +318,29 @@ function layoutDashboard_(ss, agents, types, wk) {
     .setValue(typeList.indexOf(prev.type) >= 0 ? prev.type : '全体')
     .setBackground('#eef2ff').setFontWeight('bold');
 
-  dash.getRange('A4').setValue('期間モード').setFontWeight('bold');
-  const modeList = ['月間', '週次', '任意期間'];
+  dash.getRange('A4').setValue('対象月').setFontWeight('bold');
   dash.getRange('C4')
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(monthLabels, true).setAllowInvalid(false).build())
+    .setValue(monthLabels.indexOf(prev.month) >= 0 ? prev.month : latestMonth)
+    .setBackground('#eef2ff').setFontWeight('bold');
+
+  dash.getRange('A5').setValue('期間モード').setFontWeight('bold');
+  const modeList = ['月間', '週次', '任意期間'];
+  dash.getRange('C5')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(modeList, true).setAllowInvalid(false).build())
     .setValue(modeList.indexOf(prev.mode) >= 0 ? prev.mode : '月間')
     .setBackground('#eef2ff').setFontWeight('bold');
 
-  dash.getRange('A5').setValue('週を選択（週次のとき）').setFontColor('#64748b');
-  const weekLabels = wk.weeks.map(w => w[0]);
-  dash.getRange('C5')
+  dash.getRange('A6').setValue('週を選択（週次のとき）').setFontColor('#64748b');
+  dash.getRange('C6')
     .setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(weekLabels, true).setAllowInvalid(true).build())
     .setValue(weekLabels.indexOf(prev.week) >= 0 ? prev.week : (weekLabels[0] || ''));
 
-  dash.getRange('A6').setValue('任意期間（任意期間のとき）').setFontColor('#64748b');
-  dash.getRange('C6').setValue(wk.monthStart).setNumberFormat('yyyy/mm/dd');
-  dash.getRange('D6').setValue('〜').setHorizontalAlignment('center');
-  dash.getRange('E6').setValue(wk.monthEnd).setNumberFormat('yyyy/mm/dd');
+  dash.getRange('A7').setValue('任意期間（任意期間のとき）').setFontColor('#64748b');
+  const latest = months[months.length - 1];
+  dash.getRange('C7').setValue(latest.monthStart).setNumberFormat('yyyy/mm/dd');
+  dash.getRange('D7').setValue('〜').setHorizontalAlignment('center');
+  dash.getRange('E7').setValue(latest.monthEnd).setNumberFormat('yyyy/mm/dd');
 
   // ---- 表 ----
   const HR = 11;                // ヘッダー行
