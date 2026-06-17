@@ -281,10 +281,14 @@ function ensureGoalSheet_(ss) {
  *  既に存在する場合は上書きしない（ユーザーの編集を保持） */
 function ensureRulesTable_(g) {
   if (g.getRange('F1').getValue() !== '') return;
-  g.getRange('F1').setValue('おすすめ打ち手ルール（編集可：閾値と打ち手の文言を変更できます）')
+  g.getRange('F1').setValue('おすすめ打ち手ルール（反映されるのは H列:閾値 と I列:打ち手 のみ）')
     .setFontWeight('bold');
   g.getRange('F2:I2').setValues([['優先', '条件', '閾値', '打ち手']])
     .setFontWeight('bold').setBackground('#f1f5f9');
+  g.getRange('F2').setNote('説明用ラベル。編集しても判定順は変わりません');
+  g.getRange('G2').setNote('説明用ラベル。編集しても判定は変わりません');
+  g.getRange('H2').setNote('編集可：この閾値が判定に反映されます');
+  g.getRange('I2').setNote('編集可：この文言がダッシュボードの打ち手列に表示されます');
   const rows = [
     [1, 'アポ率達成＆担当接触率OK', '', '✅ 好調キープ'],
     [2, '受付突破率がこの値未満', CONFIG.PASS_RATE_BENCH, '受付突破↑（受付トーク改善）'],
